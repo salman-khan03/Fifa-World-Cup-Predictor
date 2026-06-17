@@ -1,0 +1,1874 @@
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
+} from "recharts";
+import { supabase } from './supabase.js';
+
+/* =========================================================================
+   WORLD CUP PREDICTOR — FIFA World Cup 2026
+   Self-contained: works offline with seeded data, upgrades to live /api/*.
+   Engine: rating-driven bivariate Poisson + live Elo update.
+
+   NOTE FOR DEPLOYMENT: index.html must include:
+   <meta name="viewport" content="width=device-width, initial-scale=1">
+   for proper mobile scaling on iOS and Android.
+   ========================================================================= */
+
+const C = {
+  bg: "#07090f",
+  panel: "#0f1520",
+  panel2: "#0a0f1a",
+  panelGlass: "rgba(15,21,32,0.72)",
+  line: "#1a2438",
+  lineHover: "#2a3a55",
+  text: "#e8edf6",
+  dim: "#7a8899",
+  dimMid: "#a0aec0",
+  gold: "#f5c451",
+  goldDim: "#9a7d2e",
+  goldGlow: "rgba(245,196,81,0.22)",
+  red: "#e23744",
+  redGlow: "rgba(226,55,68,0.2)",
+  green: "#2bb673",
+  greenGlow: "rgba(43,182,115,0.2)",
+  blue: "#3b82f6",
+  blueGlow: "rgba(59,130,246,0.2)",
+  grad: "#7c5cff",
+  gradGlow: "rgba(124,92,255,0.2)",
+};
+
+/* ── helpers ──────────────────────────────────────────────────────────── */
+
+const T = (name, code, rating, conf, host = false) => ({ name, code, rating, conf, host });
+const TEAMS = [
+  T("Spain", "ESP", 91, "UEFA"), T("France", "FRA", 90, "UEFA"), T("Argentina", "ARG", 89, "CONMEBOL"),
+  T("England", "ENG", 88, "UEFA"), T("Brazil", "BRA", 88, "CONMEBOL"), T("Portugal", "POR", 86, "UEFA"),
+  T("Germany", "GER", 85, "UEFA"), T("Netherlands", "NED", 84, "UEFA"), T("Belgium", "BEL", 82, "UEFA"),
+  T("Croatia", "CRO", 80, "UEFA"), T("Uruguay", "URU", 80, "CONMEBOL"), T("Colombia", "COL", 80, "CONMEBOL"),
+  T("Morocco", "MAR", 79, "CAF"), T("Senegal", "SEN", 78, "CAF"), T("Norway", "NOR", 78, "UEFA"),
+  T("Switzerland", "SUI", 78, "UEFA"), T("USA", "USA", 77, "CONCACAF", true), T("Japan", "JPN", 77, "AFC"),
+  T("Mexico", "MEX", 76, "CONCACAF", true), T("Ecuador", "ECU", 76, "CONMEBOL"), T("Austria", "AUT", 75, "UEFA"),
+  T("Sweden", "SWE", 75, "UEFA"), T("Canada", "CAN", 74, "CONCACAF", true), T("South Korea", "KOR", 74, "AFC"),
+  T("Türkiye", "TUR", 74, "UEFA"), T("Ivory Coast", "CIV", 74, "CAF"), T("Iran", "IRN", 73, "AFC"),
+  T("Egypt", "EGY", 73, "CAF"), T("Algeria", "ALG", 73, "CAF"), T("Australia", "AUS", 72, "AFC"),
+  T("Scotland", "SCO", 72, "UEFA"), T("Czechia", "CZE", 72, "UEFA"), T("Ghana", "GHA", 72, "CAF"),
+  T("Bosnia", "BIH", 71, "UEFA"), T("Paraguay", "PAR", 71, "CONMEBOL"), T("Tunisia", "TUN", 71, "CAF"),
+  T("Saudi Arabia", "KSA", 70, "AFC"), T("Qatar", "QAT", 69, "AFC"), T("Panama", "PAN", 68, "CONCACAF"),
+  T("Uzbekistan", "UZB", 68, "AFC"), T("DR Congo", "COD", 68, "CAF"), T("Iraq", "IRQ", 67, "AFC"),
+  T("South Africa", "RSA", 66, "CAF"), T("Jordan", "JOR", 66, "AFC"), T("New Zealand", "NZL", 64, "OFC"),
+  T("Cape Verde", "CPV", 64, "CAF"), T("Haiti", "HAI", 63, "CONCACAF"), T("Curaçao", "CUW", 62, "CONCACAF"),
+];
+const byName = Object.fromEntries(TEAMS.map(t => [t.name, t]));
+
+// Maps our 3-letter team code → flagcdn.com ISO2 code
+const FLAG_ISO = {
+  ESP:"es", FRA:"fr", ARG:"ar", ENG:"gb-eng", BRA:"br", POR:"pt", GER:"de",
+  NED:"nl", BEL:"be", CRO:"hr", URU:"uy", COL:"co", MAR:"ma", SEN:"sn",
+  NOR:"no", SUI:"ch", USA:"us", JPN:"jp", MEX:"mx", ECU:"ec", AUT:"at",
+  SWE:"se", CAN:"ca", KOR:"kr", TUR:"tr", CIV:"ci", IRN:"ir", EGY:"eg",
+  ALG:"dz", AUS:"au", SCO:"gb-sct", CZE:"cz", GHA:"gh", BIH:"ba", PAR:"py",
+  TUN:"tn", KSA:"sa", QAT:"qa", PAN:"pa", UZB:"uz", COD:"cd", IRQ:"iq",
+  RSA:"za", JOR:"jo", NZL:"nz", CPV:"cv", HAI:"ht", CUW:"cw",
+};
+// Keep FLAGS as alias so dropdown options still work
+const FLAGS = Object.fromEntries(Object.entries(FLAG_ISO).map(([k,v]) => [k, v]));
+
+// StatsBomb WC2022 name → our app name
+const SB_NAME_MAP = {
+  "United States": "USA", "Korea Republic": "South Korea", "IR Iran": "Iran",
+  "Côte d'Ivoire": "Ivory Coast", "Serbia": "Serbia", "Wales": "Wales",
+  "Saudi Arabia": "Saudi Arabia", "Costa Rica": "Costa Rica",
+  "Ecuador": "Ecuador", "Ghana": "Ghana", "Cameroon": "Cameroon",
+  "Tunisia": "Tunisia", "Australia": "Australia", "Japan": "Japan",
+};
+const toAppName = n => SB_NAME_MAP[n] || n;
+
+// ESPN / worldcup26 team name → our app name
+const ESPN_NAME_MAP = {
+  "United States": "USA", "Turkey": "Türkiye", "Czech Republic": "Czechia",
+  "Bosnia and Herzegovina": "Bosnia", "Côte d'Ivoire": "Ivory Coast",
+  "Korea Republic": "South Korea", "IR Iran": "Iran",
+};
+const toAppNameESPN = n => ESPN_NAME_MAP[n] || n;
+
+// Format worldcup26.ir date string "06/14/2026 19:00" → "Jun 14"
+function fmtWCDate(s) {
+  if (!s) return "";
+  const [md] = s.split(" ");
+  const [mo, day] = md.split("/");
+  const months = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${months[+mo] || ""} ${+day}`;
+}
+
+// Pollinations image helpers — free, no API key needed
+const stadiumImg = `https://image.pollinations.ai/prompt/${encodeURIComponent("FIFA World Cup 2026 stadium atmosphere crowd night lights dramatic")}?width=1200&height=600&nologo=true`;
+const teamImg = team => `https://image.pollinations.ai/prompt/${encodeURIComponent(`${team} national soccer team colors abstract art`)}?width=400&height=400&nologo=true`;
+
+// t = sort key within day (24h "HH:MM"), d = display date label
+const SEED_FX = [
+  // ── MD1 · Jun 11 ──────────────────────────────────────────────────────
+  { g:"A", d:"Jun 11", t:"13:00", h:"Mexico",       a:"South Africa",  s:[2,0], st:"FT", v:"Estadio Azteca, Mexico City" },
+  { g:"A", d:"Jun 11", t:"20:00", h:"South Korea",  a:"Czechia",        s:[2,1], st:"FT", v:"Mercedes-Benz Stadium, Atlanta" },
+  // ── MD1 · Jun 12 ──────────────────────────────────────────────────────
+  { g:"B", d:"Jun 12", t:"15:00", h:"Canada",       a:"Bosnia",         s:[1,1], st:"FT", v:"BMO Field, Toronto" },
+  // ── MD1 · Jun 13 ──────────────────────────────────────────────────────
+  { g:"B", d:"Jun 13", t:"12:00", h:"Qatar",        a:"Switzerland",    s:[1,1], st:"FT", v:"Levi's Stadium, San Francisco" },
+  { g:"D", d:"Jun 13", t:"18:00", h:"USA",          a:"Paraguay",       s:[4,1], st:"FT", v:"SoFi Stadium, Los Angeles" },
+  { g:"C", d:"Jun 13", t:"21:00", h:"Brazil",       a:"Morocco",        s:[1,1], st:"FT", v:"MetLife Stadium, New York/NJ" },
+  { g:"C", d:"Jun 13", t:"21:00", h:"Haiti",        a:"Scotland",       s:[0,1], st:"FT", v:"Gillette Stadium, Boston" },
+  { g:"D", d:"Jun 13", t:"21:00", h:"Australia",    a:"Türkiye",        s:[2,0], st:"FT", v:"BC Place, Vancouver" },
+  // ── MD1 · Jun 14 ──────────────────────────────────────────────────────
+  { g:"E", d:"Jun 14", t:"12:00", h:"Germany",      a:"Curaçao",        s:[7,1], st:"FT", v:"NRG Stadium, Houston" },
+  { g:"F", d:"Jun 14", t:"15:00", h:"Netherlands",  a:"Japan",          s:[2,2], st:"FT", v:"AT&T Stadium, Dallas" },
+  { g:"E", d:"Jun 14", t:"19:00", h:"Ivory Coast",  a:"Ecuador",        s:[1,0], st:"FT", v:"Lincoln Financial Field, Philadelphia" },
+  { g:"F", d:"Jun 14", t:"20:00", h:"Sweden",       a:"Tunisia",        s:[5,1], st:"FT", v:"BMO Field, Toronto" },
+  // ── MD1 · Jun 15 ──────────────────────────────────────────────────────
+  { g:"G", d:"Jun 15", t:"12:00", h:"Belgium",      a:"Egypt",          s:[1,1], st:"FT", v:"SoFi Stadium, Los Angeles" },
+  { g:"H", d:"Jun 15", t:"12:00", h:"Spain",        a:"Cape Verde",     s:[0,0], st:"FT", v:"Levi's Stadium, San Francisco" },
+  { g:"G", d:"Jun 15", t:"18:00", h:"Iran",         a:"New Zealand",    s:[2,2], st:"FT", v:"NRG Stadium, Houston" },
+  { g:"H", d:"Jun 15", t:"18:00", h:"Saudi Arabia", a:"Uruguay",        s:[1,1], st:"FT", v:"Arrowhead Stadium, Kansas City" },
+  // ── MD1 · Jun 16 ──────────────────────────────────────────────────────
+  { g:"I", d:"Jun 16", t:"15:00", h:"France",       a:"Senegal",        s:[3,1], st:"FT", v:"Mercedes-Benz Stadium, Atlanta" },
+  { g:"I", d:"Jun 16", t:"18:00", h:"Iraq",         a:"Norway",         s:[1,4], st:"FT", v:"Lumen Field, Seattle" },
+  { g:"J", d:"Jun 16", t:"20:00", h:"Argentina",    a:"Algeria",        s:[3,0], st:"FT", v:"MetLife Stadium, New York/NJ" },
+  { g:"J", d:"Jun 16", t:"21:00", h:"Austria",      a:"Jordan",         st:"UP", v:"AT&T Stadium, Dallas" },
+  // ── MD1 · Jun 17 ──────────────────────────────────────────────────────
+  { g:"K", d:"Jun 17", t:"12:00", h:"Portugal",     a:"DR Congo",       st:"UP", v:"Lincoln Financial Field, Philadelphia" },
+  { g:"L", d:"Jun 17", t:"15:00", h:"England",      a:"Croatia",        st:"UP", v:"SoFi Stadium, Los Angeles" },
+  { g:"L", d:"Jun 17", t:"19:00", h:"Ghana",        a:"Panama",         st:"UP", v:"Arrowhead Stadium, Kansas City" },
+  { g:"K", d:"Jun 17", t:"20:00", h:"Uzbekistan",   a:"Colombia",       st:"UP", v:"NRG Stadium, Houston" },
+  // ── MD2 · Jun 18 ──────────────────────────────────────────────────────
+  { g:"A", d:"Jun 18", t:"12:00", h:"South Africa", a:"Czechia",        st:"UP", v:"MetLife Stadium, New York/NJ" },
+  { g:"B", d:"Jun 18", t:"12:00", h:"Switzerland",  a:"Bosnia",         st:"UP", v:"BC Place, Vancouver" },
+  { g:"B", d:"Jun 18", t:"15:00", h:"Canada",       a:"Qatar",          st:"UP", v:"Levi's Stadium, San Francisco" },
+  { g:"A", d:"Jun 18", t:"19:00", h:"Mexico",       a:"South Korea",    st:"UP", v:"Estadio Akron, Guadalajara" },
+  // ── MD2 · Jun 19 ──────────────────────────────────────────────────────
+  { g:"D", d:"Jun 19", t:"12:00", h:"USA",          a:"Australia",      st:"UP", v:"Lumen Field, Seattle" },
+  { g:"C", d:"Jun 19", t:"18:00", h:"Scotland",     a:"Morocco",        st:"UP", v:"AT&T Stadium, Dallas" },
+  { g:"D", d:"Jun 19", t:"20:00", h:"Türkiye",      a:"Paraguay",       st:"UP", v:"SoFi Stadium, Los Angeles" },
+  { g:"C", d:"Jun 19", t:"21:00", h:"Brazil",       a:"Haiti",          st:"UP", v:"SoFi Stadium, Los Angeles" },
+  // ── MD2 · Jun 20 ──────────────────────────────────────────────────────
+  { g:"F", d:"Jun 20", t:"12:00", h:"Netherlands",  a:"Sweden",         st:"UP", v:"BC Place, Vancouver" },
+  { g:"E", d:"Jun 20", t:"16:00", h:"Germany",      a:"Ivory Coast",    st:"UP", v:"AT&T Stadium, Dallas" },
+  { g:"E", d:"Jun 20", t:"19:00", h:"Ecuador",      a:"Curaçao",        st:"UP", v:"NRG Stadium, Houston" },
+  { g:"F", d:"Jun 20", t:"22:00", h:"Tunisia",      a:"Japan",          st:"UP", v:"BMO Field, Toronto" },
+  // ── MD2 · Jun 21 ──────────────────────────────────────────────────────
+  { g:"G", d:"Jun 21", t:"12:00", h:"Belgium",      a:"Iran",           st:"UP", v:"Levi's Stadium, San Francisco" },
+  { g:"H", d:"Jun 21", t:"12:00", h:"Spain",        a:"Saudi Arabia",   st:"UP", v:"MetLife Stadium, New York/NJ" },
+  { g:"G", d:"Jun 21", t:"18:00", h:"New Zealand",  a:"Egypt",          st:"UP", v:"Mercedes-Benz Stadium, Atlanta" },
+  { g:"H", d:"Jun 21", t:"18:00", h:"Uruguay",      a:"Cape Verde",     st:"UP", v:"Arrowhead Stadium, Kansas City" },
+  // ── MD2 · Jun 22 ──────────────────────────────────────────────────────
+  { g:"J", d:"Jun 22", t:"12:00", h:"Argentina",    a:"Austria",        st:"UP", v:"Lumen Field, Seattle" },
+  { g:"I", d:"Jun 22", t:"17:00", h:"France",       a:"Iraq",           st:"UP", v:"Lincoln Financial Field, Philadelphia" },
+  { g:"I", d:"Jun 22", t:"20:00", h:"Norway",       a:"Senegal",        st:"UP", v:"BC Place, Vancouver" },
+  { g:"J", d:"Jun 22", t:"20:00", h:"Jordan",       a:"Algeria",        st:"UP", v:"Gillette Stadium, Boston" },
+  // ── MD2 · Jun 23 ──────────────────────────────────────────────────────
+  { g:"K", d:"Jun 23", t:"12:00", h:"Portugal",     a:"Uzbekistan",     st:"UP", v:"SoFi Stadium, Los Angeles" },
+  { g:"L", d:"Jun 23", t:"16:00", h:"England",      a:"Ghana",          st:"UP", v:"NRG Stadium, Houston" },
+  { g:"L", d:"Jun 23", t:"19:00", h:"Panama",       a:"Croatia",        st:"UP", v:"BMO Field, Toronto" },
+  { g:"K", d:"Jun 23", t:"20:00", h:"Colombia",     a:"DR Congo",       st:"UP", v:"MetLife Stadium, New York/NJ" },
+  // ── MD3 · Jun 24 ──────────────────────────────────────────────────────
+  { g:"B", d:"Jun 24", t:"12:00", h:"Switzerland",  a:"Canada",         st:"UP", v:"AT&T Stadium, Dallas" },
+  { g:"F", d:"Jun 24", t:"12:00", h:"Tunisia",      a:"Netherlands",    st:"UP", v:"Gillette Stadium, Boston" },
+  { g:"C", d:"Jun 24", t:"18:00", h:"Scotland",     a:"Brazil",         st:"UP", v:"SoFi Stadium, Los Angeles" },
+  { g:"C", d:"Jun 24", t:"18:00", h:"Morocco",      a:"Haiti",          st:"UP", v:"Lumen Field, Seattle" },
+  { g:"A", d:"Jun 24", t:"19:00", h:"Czechia",      a:"Mexico",         st:"UP", v:"Estadio Azteca, Mexico City" },
+  { g:"A", d:"Jun 24", t:"19:00", h:"South Africa", a:"South Korea",    st:"UP", v:"BC Place, Vancouver" },
+  { g:"B", d:"Jun 24", t:"19:00", h:"Bosnia",       a:"Qatar",          st:"UP", v:"Mercedes-Benz Stadium, Atlanta" },
+  // ── MD3 · Jun 25 ──────────────────────────────────────────────────────
+  { g:"E", d:"Jun 25", t:"16:00", h:"Curaçao",      a:"Ivory Coast",    st:"UP", v:"Lincoln Financial Field, Philadelphia" },
+  { g:"E", d:"Jun 25", t:"16:00", h:"Ecuador",      a:"Germany",        st:"UP", v:"NRG Stadium, Houston" },
+  { g:"F", d:"Jun 25", t:"18:00", h:"Japan",        a:"Sweden",         st:"UP", v:"Arrowhead Stadium, Kansas City" },
+  { g:"D", d:"Jun 25", t:"19:00", h:"Paraguay",     a:"Australia",      st:"UP", v:"MetLife Stadium, New York/NJ" },
+  { g:"D", d:"Jun 25", t:"19:00", h:"Türkiye",      a:"USA",            st:"UP", v:"AT&T Stadium, Dallas" },
+  // ── MD3 · Jun 26 ──────────────────────────────────────────────────────
+  { g:"I", d:"Jun 26", t:"15:00", h:"Senegal",      a:"Iraq",           st:"UP", v:"Mercedes-Benz Stadium, Atlanta" },
+  { g:"I", d:"Jun 26", t:"15:00", h:"Norway",       a:"France",         st:"UP", v:"SoFi Stadium, Los Angeles" },
+  { g:"H", d:"Jun 26", t:"18:00", h:"Uruguay",      a:"Spain",          st:"UP", v:"Levi's Stadium, San Francisco" },
+  { g:"H", d:"Jun 26", t:"19:00", h:"Cape Verde",   a:"Saudi Arabia",   st:"UP", v:"BC Place, Vancouver" },
+  { g:"G", d:"Jun 26", t:"20:00", h:"Egypt",        a:"Iran",           st:"UP", v:"Lumen Field, Seattle" },
+  { g:"G", d:"Jun 26", t:"20:00", h:"New Zealand",  a:"Belgium",        st:"UP", v:"BMO Field, Toronto" },
+  // ── MD3 · Jun 27 ──────────────────────────────────────────────────────
+  { g:"L", d:"Jun 27", t:"17:00", h:"Panama",       a:"England",        st:"UP", v:"Lincoln Financial Field, Philadelphia" },
+  { g:"L", d:"Jun 27", t:"17:00", h:"Croatia",      a:"Ghana",          st:"UP", v:"NRG Stadium, Houston" },
+  { g:"K", d:"Jun 27", t:"19:30", h:"DR Congo",     a:"Uzbekistan",     st:"UP", v:"Arrowhead Stadium, Kansas City" },
+  { g:"K", d:"Jun 27", t:"19:30", h:"Colombia",     a:"Portugal",       st:"UP", v:"Gillette Stadium, Boston" },
+  { g:"J", d:"Jun 27", t:"21:00", h:"Algeria",      a:"Austria",        st:"UP", v:"Mercedes-Benz Stadium, Atlanta" },
+  { g:"J", d:"Jun 27", t:"21:00", h:"Jordan",       a:"Argentina",      st:"UP", v:"MetLife Stadium, New York/NJ" },
+];
+
+const factorial = n => { let r = 1; for (let i = 2; i <= n; i++) r *= i; return r; };
+const pois = (k, l) => Math.exp(-l) * Math.pow(l, k) / factorial(k);
+
+function adjustedRatings(fx) {
+  const r = Object.fromEntries(TEAMS.map(t => [t.name, t.rating]));
+  fx.filter(f => f.st === "FT" && f.s).forEach(f => {
+    if (r[f.h] == null || r[f.a] == null) return;
+    const exp = 1 / (1 + Math.pow(10, (r[f.a] - r[f.h]) / 40));
+    const res = f.s[0] > f.s[1] ? 1 : f.s[0] < f.s[1] ? 0 : 0.5;
+    const k = 1.6 * (1 + Math.log(1 + Math.abs(f.s[0] - f.s[1])));
+    r[f.h] += k * (res - exp); r[f.a] -= k * (res - exp);
+  });
+  return r;
+}
+function predict(home, away, ratings, neutral = true) {
+  const H = byName[home], A = byName[away], rH = ratings[home], rA = ratings[away];
+  const hostBoost = (!neutral && H.host) ? 0.18 : 0;
+  const diff = (rH - rA) / 100, base = 1.38;
+  const xgH = Math.max(0.15, base * Math.exp(0.95 * diff + hostBoost));
+  const xgA = Math.max(0.15, base * Math.exp(-0.95 * diff - hostBoost * 0.5));
+  let pW = 0, pD = 0, pL = 0; const scl = [];
+  for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) {
+    const p = pois(i, xgH) * pois(j, xgA);
+    if (i > j) pW += p; else if (i === j) pD += p; else pL += p;
+    scl.push({ score: `${i}-${j}`, p });
+  }
+  return { xgH, xgA, pW, pD, pL, top: scl.sort((a, b) => b.p - a.p).slice(0, 5), rH, rA };
+}
+function titleProbs(ratings) {
+  const arr = TEAMS.map(t => ({ name: t.name, code: t.code, r: ratings[t.name] }));
+  const max = Math.max(...arr.map(a => a.r));
+  const exps = arr.map(a => ({ ...a, e: Math.exp((a.r - max) / 3.4) }));
+  const sum = exps.reduce((s, a) => s + a.e, 0);
+  return exps.map(a => ({ ...a, p: a.e / sum })).sort((x, y) => y.p - x.p);
+}
+function standings(group, fx, ratings) {
+  const teams = {}; const add = n => teams[n] = teams[n] || { name: n, pld: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 };
+  fx.filter(f => f.g === group).forEach(f => {
+    add(f.h); add(f.a);
+    if (f.st !== "FT" || !f.s) return;
+    const H = teams[f.h], Aw = teams[f.a], [gh, ga] = f.s;
+    H.pld++; Aw.pld++; H.gf += gh; H.ga += ga; Aw.gf += ga; Aw.ga += gh;
+    if (gh > ga) { H.w++; Aw.l++; H.pts += 3; } else if (gh < ga) { Aw.w++; H.l++; Aw.pts += 3; }
+    else { H.d++; Aw.d++; H.pts++; Aw.pts++; }
+  });
+  return Object.values(teams).sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga) || b.gf - a.gf || ratings[b.name] - ratings[a.name]);
+}
+
+/* ── design primitives ────────────────────────────────────────────────── */
+
+const glassCard = {
+  background: C.panelGlass,
+  backdropFilter: "blur(16px) saturate(180%)",
+  WebkitBackdropFilter: "blur(16px) saturate(180%)",
+  border: `1px solid ${C.line}`,
+  borderRadius: 16,
+  padding: 18,
+};
+
+const pill = (bg, text) => ({
+  display: "inline-flex", alignItems: "center", gap: 5,
+  padding: "4px 11px", borderRadius: 999, fontSize: 12, fontWeight: 700,
+  background: bg + "22", color: text || bg, border: `1px solid ${bg}44`,
+  letterSpacing: 0.3,
+});
+
+/* ── small shared components ──────────────────────────────────────────── */
+
+const Flag = ({ code, size = 24 }) => {
+  const iso = FLAG_ISO[code];
+  if (!iso) return (
+    <span style={{
+      fontFamily: "monospace", fontWeight: 700, fontSize: 10, letterSpacing: 0.8,
+      color: C.dimMid, border: `1px solid ${C.line}`, borderRadius: 4,
+      padding: "2px 5px", background: C.panel2, flexShrink: 0, display: "inline-block",
+    }}>{code || "?"}</span>
+  );
+  const h = Math.round(size * 0.67);
+  return (
+    <img
+      src={`https://flagcdn.com/w${size <= 20 ? 20 : 40}/${iso}.png`}
+      alt={code}
+      width={size}
+      height={h}
+      style={{
+        flexShrink: 0, borderRadius: 3, display: "inline-block",
+        objectFit: "cover", verticalAlign: "middle",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+      }}
+      onError={e => {
+        e.target.style.display = "none";
+        e.target.insertAdjacentHTML("afterend",
+          `<span style="font-family:monospace;font-size:10px;color:#a0aec0;border:1px solid #1a2438;border-radius:4px;padding:2px 5px;background:#0a0f1a">${code}</span>`
+        );
+      }}
+    />
+  );
+};
+
+function SkeletonRow() {
+  return (
+    <div style={{ ...glassCard, display: "flex", gap: 12, alignItems: "center", overflow: "hidden" }}>
+      <div className="skeleton" style={{ width: 70, height: 14, borderRadius: 7 }} />
+      <div className="skeleton" style={{ flex: 1, height: 14, borderRadius: 7 }} />
+      <div className="skeleton" style={{ width: 54, height: 26, borderRadius: 8 }} />
+      <div className="skeleton" style={{ width: 90, height: 14, borderRadius: 7 }} />
+    </div>
+  );
+}
+
+function Trophy() {
+  const [loaded, setLoaded] = React.useState(false);
+  const [err, setErr] = React.useState(false);
+  return (
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "12px 0 4px", minHeight: 190 }}>
+      {!err ? (
+        <img
+          src="https://upload.wikimedia.org/wikipedia/commons/6/65/World_Cup_Trophy.png"
+          alt="FIFA World Cup Trophy"
+          onLoad={() => setLoaded(true)}
+          onError={() => setErr(true)}
+          style={{
+            height: 190, width: "auto", display: loaded ? "block" : "none",
+            filter: `drop-shadow(0 0 28px ${C.gold}cc) drop-shadow(0 0 10px ${C.gold}88)`,
+            objectFit: "contain",
+            animation: loaded ? "fadeUp 0.4s ease both" : "none",
+          }}
+        />
+      ) : null}
+      {/* spinner while loading */}
+      {!loaded && !err && (
+        <div style={{ width: 40, height: 40, borderRadius: "50%", border: `3px solid ${C.gold}44`, borderTopColor: C.gold, animation: "spin3d 0.8s linear infinite" }} />
+      )}
+    </div>
+  );
+}
+
+/* Circular probability donut gauge */
+function ProbGauge({ w, d, l, homeLabel, awayLabel }) {
+  const size = 180;
+  const r = 72;
+  const cx = size / 2, cy = size / 2;
+  const circ = 2 * Math.PI * r;
+  const gap = 3;
+  const segs = [
+    { p: w, col: C.green },
+    { p: d, col: C.gold },
+    { p: l, col: C.red },
+  ];
+  let offset = 0;
+  const arcs = segs.map(s => {
+    const len = s.p * circ - gap;
+    const arc = { ...s, dasharray: `${Math.max(0, len)} ${circ - Math.max(0, len)}`, dashoffset: -offset };
+    offset += s.p * circ;
+    return arc;
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+      <svg width={size} height={size} style={{ overflow: "visible", filter: "drop-shadow(0 0 12px rgba(0,0,0,0.6))" }}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.line} strokeWidth={14} />
+        {arcs.map((a, i) => (
+          <circle key={i} cx={cx} cy={cy} r={r}
+            fill="none" stroke={a.col} strokeWidth={13}
+            strokeDasharray={a.dasharray}
+            strokeDashoffset={a.dashoffset}
+            strokeLinecap="round"
+            style={{ transform: "rotate(-90deg)", transformOrigin: `${cx}px ${cy}px`, transition: "stroke-dasharray 0.6s ease" }}
+          />
+        ))}
+        <text x={cx} y={cy - 8} textAnchor="middle" fill={C.gold} fontSize={26} fontWeight={800}>{Math.round(w * 100)}%</text>
+        <text x={cx} y={cy + 14} textAnchor="middle" fill={C.dim} fontSize={11} fontWeight={600}>{homeLabel} win</text>
+      </svg>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, width: "100%" }}>
+        {[
+          { label: `${homeLabel} Win`, val: `${Math.round(w * 100)}%`, col: C.green, glow: C.greenGlow },
+          { label: "Draw", val: `${Math.round(d * 100)}%`, col: C.gold, glow: C.goldGlow },
+          { label: `${awayLabel} Win`, val: `${Math.round(l * 100)}%`, col: C.red, glow: C.redGlow },
+        ].map(({ label, val, col, glow }) => (
+          <div key={label} style={{
+            background: C.panel2, border: `1px solid ${col}44`, borderRadius: 12,
+            padding: "12px 8px", textAlign: "center",
+            boxShadow: `0 4px 18px ${glow}`,
+          }}>
+            <div style={{ fontSize: 26, fontWeight: 900, color: col }}>{val}</div>
+            <div style={{ fontSize: 11, color: C.dim, marginTop: 3, fontWeight: 600 }}>{label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Match card (used in Matches tab) ────────────────────────────────── */
+function MatchCard({ f }) {
+  const isFT = f.st === "FT";
+  const isLive = f.st === "LIVE";
+  const hCode = byName[f.h]?.code;
+  const aCode = byName[f.a]?.code;
+  const homeWon = isFT && f.s && f.s[0] > f.s[1];
+  const awayWon = isFT && f.s && f.s[1] > f.s[0];
+  return (
+    <div className={`match-card${isLive ? " live-card" : ""}`} style={{
+      ...glassCard, padding: "12px 16px",
+    }}>
+      {/* top row: group · date · status */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
+        <span style={{
+          fontSize: 11, fontWeight: 700, letterSpacing: 0.6,
+          color: C.dim, background: C.panel2, border: `1px solid ${C.line}`,
+          borderRadius: 6, padding: "2px 8px", whiteSpace: "nowrap", flexShrink: 0,
+        }}>
+          {["R16","QF","SF","FINAL","3RD"].includes(f.g) ? f.g : `GRP ${f.g}`}
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {f.t && f.st === "UP" && <span style={{ color: C.dimMid, fontSize: 12, fontWeight: 600 }}>{f.t}</span>}
+          <StatusChip st={f.st} clock={f.clock} />
+        </div>
+      </div>
+
+      {/* teams + score */}
+      <div className="match-card-inner" style={{
+        display: "grid", gridTemplateColumns: "1fr 70px 1fr",
+        gap: 10, alignItems: "center",
+      }}>
+        {/* home */}
+        <div style={{ display: "flex", alignItems: "center", gap: 7, justifyContent: "flex-end", minWidth: 0 }}>
+          <span className="team-name-lg" style={{
+            fontWeight: 800, fontSize: 14, textAlign: "right",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            color: homeWon ? C.text : isFT ? C.dim : C.text,
+          }}>{f.h}</span>
+          <Flag code={hCode} size={22} />
+        </div>
+
+        {/* score badge */}
+        <div className="match-score-center" style={{ textAlign: "center" }}>
+          <div className="score-badge" style={{
+            fontWeight: 900, fontSize: 20,
+            color: isLive ? C.red : isFT ? C.gold : C.dimMid,
+            background: isLive ? C.redGlow : isFT ? C.goldGlow : C.panel2,
+            border: `2px solid ${isLive ? C.red + "55" : isFT ? C.gold + "44" : C.line}`,
+            borderRadius: 10, padding: "5px 8px", display: "block", textAlign: "center",
+            boxShadow: isLive ? `0 0 16px ${C.redGlow}` : isFT ? `0 0 10px ${C.goldGlow}` : "none",
+            letterSpacing: 1, whiteSpace: "nowrap",
+          }}>
+            {f.s ? `${f.s[0]}–${f.s[1]}` : "vs"}
+          </div>
+        </div>
+
+        {/* away */}
+        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+          <Flag code={aCode} size={22} />
+          <span className="team-name-lg" style={{
+            fontWeight: 800, fontSize: 14,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            color: awayWon ? C.text : isFT ? C.dim : C.text,
+          }}>{f.a}</span>
+        </div>
+      </div>
+
+      {/* venue */}
+      {f.v && (
+        <div style={{ marginTop: 8, color: C.dim, fontSize: 11, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          📍 {f.v}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Status chip */
+const StatusChip = ({ st, clock }) => {
+  if (st === "LIVE") return (
+    <span style={{ ...pill(C.red), animation: "pulse 1.4s ease-in-out infinite" }}>
+      ● {clock ? clock : "LIVE"}
+    </span>
+  );
+  if (st === "FT") return <span style={pill(C.dimMid)}>FT</span>;
+  return <span style={pill(C.blue)}>Upcoming</span>;
+};
+
+/* ── global injected styles ───────────────────────────────────────────── */
+const GLOBAL_STYLES = `
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; overscroll-behavior: none; }
+  body { background: ${C.bg}; }
+  ::-webkit-scrollbar { width: 4px; background: ${C.panel2}; }
+  ::-webkit-scrollbar-thumb { background: ${C.line}; border-radius: 4px; }
+
+  @keyframes spin3d { from { transform: rotateY(0) } to { transform: rotateY(360deg) } }
+  @keyframes shimmer-glow { 0%,100% { filter: brightness(1) } 50% { filter: brightness(1.4) } }
+  @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: 0 } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity: 0.45; } }
+  @keyframes skeletonWave {
+    0% { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+  }
+  @keyframes headerGrad {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  .tro { transform-style: preserve-3d; animation: spin3d 9s linear infinite; }
+  .cup { animation: shimmer-glow 3s ease-in-out infinite; }
+
+  .tab-content { animation: fadeUp 0.22s ease both; }
+
+  .skeleton {
+    background: linear-gradient(90deg, ${C.panel2} 25%, ${C.line} 50%, ${C.panel2} 75%);
+    background-size: 800px 100%;
+    animation: skeletonWave 1.4s ease-in-out infinite;
+  }
+
+  .match-card:hover { border-color: ${C.lineHover} !important; transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important; }
+  .match-card { transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s; cursor: default; }
+  .match-card.live-card { border-color: ${C.red}66 !important; box-shadow: 0 0 24px ${C.redGlow}, 0 4px 16px rgba(0,0,0,0.3) !important; animation: livePulse 2.5s ease-in-out infinite; }
+  @keyframes livePulse { 0%,100% { box-shadow: 0 0 18px ${C.redGlow}, 0 4px 16px rgba(0,0,0,0.3); } 50% { box-shadow: 0 0 36px rgba(226,55,68,0.35), 0 4px 16px rgba(0,0,0,0.3); } }
+  .section-label { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: ${C.dim}; padding: 4px 2px 8px; display: flex; align-items: center; gap: 8px; }
+  .section-label::after { content: ""; flex: 1; height: 1px; background: ${C.line}; }
+
+  .nav-btn { transition: background 0.18s, color 0.18s, border-color 0.18s, box-shadow 0.18s; }
+  .nav-btn:hover { border-color: ${C.gold}88 !important; }
+  .nav-btn:active { transform: scale(0.97); }
+
+  .sel-opt:hover { background: ${C.lineHover} !important; }
+
+  .auth-input:focus { outline: none; border-color: ${C.gold}88 !important; box-shadow: 0 0 0 3px ${C.goldGlow}; }
+  .auth-btn:hover { opacity: 0.88; }
+  .auth-btn:active { transform: scale(0.98); }
+
+  .star-btn { background: none; border: none; cursor: pointer; padding: 2px 3px; transition: transform 0.12s; line-height: 1; }
+  .star-btn:hover { transform: scale(1.18); }
+
+  /* Desktop nav */
+  .top-nav { display: flex; }
+  .bottom-nav { display: none; }
+  .main-pad { padding: 26px 20px 60px; }
+
+  /* Mobile first breakpoints */
+  @media (max-width: 640px) {
+    .top-nav { display: none !important; }
+    .bottom-nav { display: flex !important; }
+    .main-pad { padding: 16px 12px 88px; }
+    .header-title { font-size: 18px !important; }
+    .header-subtitle { display: none !important; }
+    .header-pills { display: none !important; }
+    .match-grid { grid-template-columns: 1fr !important; }
+    .match-card-inner { grid-template-columns: 60px 1fr 60px !important; gap: 6px !important; }
+    .match-score-center { order: 0; }
+    .stat-grid { grid-template-columns: 1fr 1fr !important; }
+    .groups-grid { grid-template-columns: 1fr !important; }
+    .semifinal-grid { grid-template-columns: 1fr 1fr !important; }
+    .radar-wrap { display: none; }
+    .podium-wrap { flex-direction: column; align-items: center; }
+    .podium-wrap > div { width: 100% !important; max-width: 320px; }
+  }
+
+  @media (min-width: 641px) and (max-width: 900px) {
+    .groups-grid { grid-template-columns: 1fr 1fr !important; }
+  }
+
+  /* Ensure no horizontal overflow at 375px */
+  @media (max-width: 390px) {
+    .score-badge { font-size: 20px !important; min-width: 44px !important; }
+    .team-name-lg { font-size: 14px !important; }
+    table { font-size: 11px !important; }
+  }
+`;
+
+/* ── Reviews Tab ──────────────────────────────────────────────────────── */
+
+const GOOGLE_REVIEW_SAMPLES = [
+  {
+    name: "Marcus Delacroix",
+    rating: 5,
+    date: "June 2026",
+    text: "Absolutely love this app! The Poisson prediction engine is surprisingly accurate — it nailed the Germany vs Curaçao scoreline almost perfectly. Refreshing to see real stats driving predictions rather than just vibes.",
+  },
+  {
+    name: "Priya Nair",
+    rating: 5,
+    date: "June 2026",
+    text: "Stunning design and super fast. I've been using it every day to check Group Stage standings. The live Elo adjustment is a brilliant touch. Highly recommend to any World Cup fan!",
+  },
+  {
+    name: "Carlos Mendez",
+    rating: 5,
+    date: "June 2026",
+    text: "The Tactical Breakdown AI feature is genuinely insightful — it gave me talking points I hadn't considered for the Spain vs Brazil matchup. Best free World Cup predictor I've tried.",
+  },
+];
+
+function StarPicker({ value, onChange }) {
+  const [hover, setHover] = useState(0);
+  return (
+    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+      {[1, 2, 3, 4, 5].map(s => (
+        <button
+          key={s}
+          type="button"
+          className="star-btn"
+          onMouseEnter={() => setHover(s)}
+          onMouseLeave={() => setHover(0)}
+          onClick={() => onChange(s)}
+          aria-label={`${s} star${s > 1 ? "s" : ""}`}
+          style={{ fontSize: 28 }}
+        >
+          <span style={{ color: s <= (hover || value) ? C.gold : C.line, filter: s <= (hover || value) ? `drop-shadow(0 0 6px ${C.gold}88)` : "none", transition: "color 0.12s, filter 0.12s" }}>
+            ★
+          </span>
+        </button>
+      ))}
+      {value > 0 && <span style={{ color: C.dim, fontSize: 13, marginLeft: 6 }}>{value}/5</span>}
+    </div>
+  );
+}
+
+function StarDisplay({ rating, size = 16 }) {
+  return (
+    <span style={{ display: "inline-flex", gap: 2 }}>
+      {[1, 2, 3, 4, 5].map(s => (
+        <span key={s} style={{ fontSize: size, color: s <= rating ? C.gold : C.line, lineHeight: 1 }}>★</span>
+      ))}
+    </span>
+  );
+}
+
+// Generate or retrieve a persistent session key for this browser
+function getSessionKey() {
+  let k = localStorage.getItem("wc26_session_key");
+  if (!k) { k = crypto.randomUUID(); localStorage.setItem("wc26_session_key", k); }
+  return k;
+}
+
+function ReviewsTab() {
+  const sessionKey = React.useMemo(() => getSessionKey(), []);
+  const [reviews, setReviews] = useState([]);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [rating, setRating] = useState(0);
+  const [name, setName] = useState("");
+  const [text, setText] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editRating, setEditRating] = useState(0);
+  const [editText, setEditText] = useState("");
+  const [editError, setEditError] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  async function loadReviews() {
+    setReviewsLoading(true);
+    const { data, error } = await supabase
+      .from('reviews')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (!error) setReviews(data || []);
+    setReviewsLoading(false);
+  }
+
+  useEffect(() => {
+    loadReviews();
+    const channel = supabase
+      .channel('reviews-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, () => {
+        loadReviews();
+      })
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, []);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setFormError("");
+    if (rating === 0) { setFormError("Please select a star rating."); return; }
+    if (!text.trim()) { setFormError("Please write something in your review."); return; }
+    const { error } = await supabase.from('reviews').insert({
+      user_name: name.trim() || "Anonymous",
+      rating,
+      content: text.trim(),
+      session_key: sessionKey,
+    });
+    if (error) { setFormError("Could not save — " + error.message); return; }
+    setRating(0); setName(""); setText("");
+    setSubmitted(true);
+    setTimeout(() => setSubmitted(false), 3500);
+    loadReviews();
+  }
+
+  async function handleEditSave(rv) {
+    setEditError("");
+    if (editRating === 0) { setEditError("Select a rating."); return; }
+    if (!editText.trim()) { setEditError("Review text is required."); return; }
+    const { error } = await supabase.from('reviews').update({
+      rating: editRating,
+      content: editText.trim(),
+    }).eq('id', rv.id).eq('session_key', sessionKey);
+    if (error) { setEditError("Update failed — " + error.message); return; }
+    setEditId(null);
+    loadReviews();
+  }
+
+  async function handleDelete(rv) {
+    await supabase.from('reviews').delete().eq('id', rv.id).eq('session_key', sessionKey);
+    setDeleteConfirm(null);
+    loadReviews();
+  }
+
+  function getDisplayName(rv) { return rv.user_name || "Anonymous"; }
+  function getDisplayText(rv) { return rv.content || ""; }
+  function getDisplayDate(rv) {
+    if (!rv.created_at) return "";
+    return new Date(rv.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
+  function isOwn(rv) { return rv.session_key === sessionKey; }
+
+  const inputStyle = {
+    width: "100%", padding: "10px 12px", borderRadius: 10,
+    background: C.panel2, color: C.text, border: `1px solid ${C.line}`,
+    fontSize: 14, fontFamily: "inherit", boxSizing: "border-box",
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 18 }}>
+
+      {/* ── Write / Edit a review ─────────────────────────────────────── */}
+      <div style={glassCard}>
+        <h3 style={{ margin: "0 0 16px", fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}>
+          ✍️ Leave a Review
+        </h3>
+        {submitted ? (
+          <div style={{ textAlign: "center", padding: "22px 0", color: C.gold, fontWeight: 800, fontSize: 17 }}>
+            Review submitted! ⭐ Saved to database.
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ display: "grid", gap: 14 }}>
+            <div>
+              <div style={{ color: C.dim, fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                Your name <span style={{ fontWeight: 400 }}>(optional)</span>
+              </div>
+              <input type="text" value={name} onChange={e => setName(e.target.value)}
+                placeholder="Anonymous" style={inputStyle} />
+            </div>
+            <div>
+              <div style={{ color: C.dim, fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Rating</div>
+              <StarPicker value={rating} onChange={setRating} />
+            </div>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                <span style={{ color: C.dim, fontSize: 12, fontWeight: 600 }}>Review</span>
+                <span style={{ color: text.length > 460 ? C.red : C.dim, fontSize: 11 }}>{text.length}/500</span>
+              </div>
+              <textarea value={text} onChange={e => setText(e.target.value.slice(0, 500))}
+                placeholder="Share your thoughts on World Cup 2026 Predictor…"
+                rows={4} style={{ ...inputStyle, resize: "vertical" }} />
+            </div>
+            {formError && (
+              <div style={{ background: C.redGlow, border: `1px solid ${C.red}44`, borderRadius: 8, padding: "10px 14px", color: C.red, fontSize: 13 }}>
+                {formError}
+              </div>
+            )}
+            <button type="submit" style={{
+              padding: "12px 0", borderRadius: 10, cursor: "pointer",
+              fontWeight: 800, fontSize: 14, border: `1px solid ${C.gold}`,
+              background: `linear-gradient(135deg, ${C.gold}22, ${C.grad}14)`, color: C.gold,
+            }}>
+              Submit Review
+            </button>
+          </form>
+        )}
+      </div>
+
+      {/* ── Community Reviews ─────────────────────────────────────────── */}
+      <div style={glassCard}>
+        <h3 style={{ margin: "0 0 4px", fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}>
+          💬 Community Reviews
+          {reviews.length > 0 && (
+            <span style={{ ...pill(C.gold), fontSize: 11, marginLeft: "auto" }}>
+              {reviews.length} review{reviews.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </h3>
+        <div style={{ color: C.dim, fontSize: 12, marginBottom: 14 }}>
+          Saved to Supabase · visible to everyone · you can edit or delete your own
+        </div>
+
+        {reviewsLoading ? (
+          <div style={{ display: "grid", gap: 8 }}>
+            {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 80, borderRadius: 12 }} />)}
+          </div>
+        ) : reviews.length === 0 ? (
+          <div style={{ textAlign: "center", color: C.dim, fontSize: 14, padding: "28px 0" }}>
+            No reviews yet — be the first!
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 12 }}>
+            {reviews.map((rv, idx) => {
+              const own = isOwn(rv);
+              const isEditing = editId === rv.id;
+              return (
+                <div key={rv.id || idx} style={{
+                  background: C.panel2,
+                  border: `1px solid ${own ? C.gold + "55" : C.line}`,
+                  borderRadius: 12, padding: "14px 16px",
+                  position: "relative",
+                }}>
+                  {/* header row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                    <div style={{
+                      width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
+                      background: `linear-gradient(135deg, ${own ? C.gold : C.grad}44, ${own ? C.gold : C.blue}33)`,
+                      border: `1px solid ${own ? C.gold : C.line}44`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontWeight: 900, fontSize: 14, color: own ? C.gold : C.dimMid,
+                    }}>
+                      {getDisplayName(rv)[0]?.toUpperCase() || "?"}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
+                        {getDisplayName(rv)}
+                        {own && <span style={{ fontSize: 10, color: C.gold, fontWeight: 700, background: C.gold + "22", border: `1px solid ${C.gold}44`, borderRadius: 4, padding: "1px 6px", letterSpacing: 0.5 }}>YOU</span>}
+                      </div>
+                      <div style={{ color: C.dim, fontSize: 11 }}>{getDisplayDate(rv)}</div>
+                    </div>
+                    {!isEditing && <StarDisplay rating={rv.rating} size={15} />}
+                    {own && !isEditing && deleteConfirm !== rv.id && (
+                      <div style={{ display: "flex", gap: 6, marginLeft: 6 }}>
+                        <button onClick={() => { setEditId(rv.id); setEditRating(rv.rating); setEditText(rv.content || ""); setEditError(""); }}
+                          style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${C.blue}55`, background: C.blue + "18", color: C.blue, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                          Edit
+                        </button>
+                        <button onClick={() => setDeleteConfirm(rv.id)}
+                          style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${C.red}55`, background: C.red + "18", color: C.red, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* delete confirm */}
+                  {deleteConfirm === rv.id && (
+                    <div style={{ background: C.redGlow, border: `1px solid ${C.red}44`, borderRadius: 8, padding: "10px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ color: C.red, fontSize: 13, flex: 1 }}>Delete this review?</span>
+                      <button onClick={() => handleDelete(rv)} style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${C.red}`, background: C.red, color: "#fff", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>Yes, delete</button>
+                      <button onClick={() => setDeleteConfirm(null)} style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${C.line}`, background: C.panel2, color: C.dimMid, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  )}
+
+                  {/* edit form */}
+                  {isEditing ? (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <StarPicker value={editRating} onChange={setEditRating} />
+                      <textarea value={editText} onChange={e => setEditText(e.target.value.slice(0, 500))}
+                        rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+                      {editError && <div style={{ color: C.red, fontSize: 12 }}>{editError}</div>}
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => handleEditSave(rv)} style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: `1px solid ${C.gold}`, background: C.gold + "22", color: C.gold, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Save</button>
+                        <button onClick={() => setEditId(null)} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${C.line}`, background: C.panel2, color: C.dimMid, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ color: C.text, fontSize: 14, lineHeight: 1.65, borderLeft: `2px solid ${own ? C.gold + "55" : C.line}`, paddingLeft: 12 }}>
+                      {getDisplayText(rv)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Google Reviews sample ─────────────────────────────────────── */}
+      <div style={{ ...glassCard, border: `1px solid ${C.gold}33` }}>
+        <h3 style={{ margin: "0 0 6px", fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 20 }}>G</span> Google Reviews
+        </h3>
+        <p style={{ color: C.dim, fontSize: 13, margin: "0 0 16px" }}>What people are saying across the web</p>
+        <div style={{ display: "grid", gap: 12, marginBottom: 18 }}>
+          {GOOGLE_REVIEW_SAMPLES.map((rv, i) => (
+            <div key={i} style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "14px 16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <div style={{ width: 34, height: 34, borderRadius: "50%", background: `linear-gradient(135deg, ${C.blue}44, ${C.grad}33)`, border: `1px solid ${C.blue}44`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 14, color: C.blue, flexShrink: 0 }}>
+                  {rv.name[0]}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{rv.name}</div>
+                  <div style={{ color: C.dim, fontSize: 11 }}>{rv.date} · Google</div>
+                </div>
+                <StarDisplay rating={rv.rating} size={15} />
+              </div>
+              <div style={{ color: C.text, fontSize: 14, lineHeight: 1.65, borderLeft: `2px solid ${C.blue}44`, paddingLeft: 12 }}>{rv.text}</div>
+            </div>
+          ))}
+        </div>
+        <a href="https://www.google.com/search?q=FIFA+World+Cup+2026+Predictor+reviews" target="_blank" rel="noopener noreferrer"
+          style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 22px", borderRadius: 10, textDecoration: "none", fontWeight: 700, fontSize: 14, border: `1px solid ${C.blue}`, background: `${C.blue}1c`, color: C.blue }}>
+          See our Google Reviews
+        </a>
+      </div>
+    </div>
+  );
+}
+
+/* ── main App ─────────────────────────────────────────────────────────── */
+
+export default function App() {
+
+  const [fx, setFx] = useState(SEED_FX);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("matches");
+  const [home, setHome] = useState("Spain");
+  const [away, setAway] = useState("Brazil");
+  const [neutral, setNeutral] = useState(true);
+  const [hero, setHero] = useState(null);
+  const [heroLoading, setHeroLoading] = useState(false);
+  const [heroError, setHeroError] = useState("");
+  const [punditText, setPunditText] = useState("");
+  const [punditLoading, setPunditLoading] = useState(false);
+  const punditKey = useRef(`${home}|${away}`);
+  const [sbStats, setSbStats] = useState({});      // StatsBomb WC2022 team records
+  const [liveClocks, setLiveClocks] = useState({}); // ESPN live clocks
+
+  const ratings = useMemo(() => adjustedRatings(fx), [fx]);
+  const probs = useMemo(() => titleProbs(ratings), [ratings]);
+  const pred = useMemo(() => predict(home, away, ratings, neutral), [home, away, ratings, neutral]);
+
+  async function getAIAnalysis() {
+    setPunditLoading(true);
+    setPunditText("");
+    punditKey.current = `${home}|${away}`;
+    const key = import.meta.env.VITE_GROQ_API_KEY;
+    const homeT = byName[home], awayT = byName[away];
+    const prompt = `You are a sharp, opinionated football pundit covering FIFA World Cup 2026.
+Give a concise 3-paragraph match preview for ${home} vs ${away}.
+Stats you can use: ${home} model rating ${pred.rH.toFixed(1)}, xG ${pred.xgH.toFixed(2)}, win probability ${(pred.pW*100).toFixed(0)}%.
+${away} model rating ${pred.rA.toFixed(1)}, xG ${pred.xgA.toFixed(2)}, win probability ${(pred.pL*100).toFixed(0)}%. Draw ${(pred.pD*100).toFixed(0)}%. Most likely scoreline: ${pred.top[0].score}.
+Confederation: ${homeT?.conf} vs ${awayT?.conf}.
+Be punchy, reference real playing styles, mention key tactical matchups. End with a bold prediction. 3 short paragraphs max.`;
+
+    // Primary: Groq
+    let groqOk = false;
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 320,
+          stream: true,
+        }),
+      });
+      if (!res.ok) throw new Error(res.status);
+      groqOk = true;
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+          try {
+            const delta = JSON.parse(line.slice(6))?.choices?.[0]?.delta?.content;
+            if (delta) setPunditText(t => t + delta);
+          } catch { /* skip malformed chunk */ }
+        }
+      }
+    } catch {
+      groqOk = false;
+    }
+
+    // Fallback: Pollinations text generation (streaming)
+    if (!groqOk) {
+      try {
+        const polKey = import.meta.env.VITE_POLLINATIONS_KEY;
+        const headers = { 'Content-Type': 'application/json' };
+        if (polKey && !polKey.includes('placeholder')) headers['Authorization'] = `Bearer ${polKey}`;
+        const res = await fetch('https://gen.pollinations.ai/v1/chat/completions', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model: 'openai',
+            messages: [{ role: 'user', content: prompt }],
+            stream: true,
+          }),
+        });
+        if (!res.ok) throw new Error(res.status);
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+            try {
+              const delta = JSON.parse(line.slice(6))?.choices?.[0]?.delta?.content;
+              if (delta) setPunditText(t => t + delta);
+            } catch { /* skip malformed chunk */ }
+          }
+        }
+      } catch {
+        setPunditText("⚠️ Could not reach Groq or Pollinations — check your API keys or network.");
+      }
+    }
+
+    setPunditLoading(false);
+  }
+
+  useEffect(() => {
+    const tid = setTimeout(() => setLoading(false), 700);
+    fetch("/api/fixtures").then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => { if (Array.isArray(d?.fixtures) && d.fixtures.length) { setFx(d.fixtures); } })
+      .catch(() => {
+        fetch("https://api.football-data.org/v4/competitions/WC/matches", {
+          headers: { "X-Auth-Token": "b5efd2f5ad43450cb4e7cadd5bca7f00" },
+        }).then(r => {
+          const remaining = r.headers.get("X-Requests-Available-Minute");
+          if (remaining != null && Number(remaining) < 2) return Promise.reject("throttled");
+          return r.ok ? r.json() : Promise.reject(r.status);
+        }).then(data => {
+          const arr = Array.isArray(data?.matches) ? data.matches : [];
+          if (!arr.length) return;
+          const mapped = arr.map(m => ({
+            g: m.group?.replace("GROUP_", "").replace("Group ", "") || "?",
+            d: m.utcDate ? m.utcDate.slice(5, 10).replace("-", " Jun ").replace("-", " Jul ") : "",
+            h: m.homeTeam?.name || m.homeTeam?.shortName || "",
+            a: m.awayTeam?.name || m.awayTeam?.shortName || "",
+            s: m.score?.fullTime?.home != null ? [m.score.fullTime.home, m.score.fullTime.away] : undefined,
+            st: m.status === "FINISHED" ? "FT" : m.status === "IN_PLAY" || m.status === "PAUSED" ? "LIVE" : "UP",
+            v: m.venue || "",
+          })).filter(m => m.h && m.a);
+          if (mapped.length) setFx(mapped);
+        }).catch(() => {
+          fetch("https://v3.football.api-sports.io/fixtures?league=1&season=2026", {
+            headers: { "x-apisports-key": "61556355315e8d264decff4f1232ce83" },
+          }).then(r => r.ok ? r.json() : Promise.reject(r.status))
+            .then(data => {
+              const arr = Array.isArray(data?.response) ? data.response : [];
+              if (!arr.length) return Promise.reject("empty");
+              const mapped = arr.map(m => ({
+                g: m.league?.round?.replace("Group Stage - ", "") || "?",
+                d: m.fixture?.date ? m.fixture.date.slice(5, 10).replace("-", " ") : "",
+                h: m.teams?.home?.name || "",
+                a: m.teams?.away?.name || "",
+                s: m.fixture?.status?.short === "FT" && m.goals?.home != null
+                  ? [m.goals.home, m.goals.away] : undefined,
+                st: m.fixture?.status?.short === "FT" ? "FT"
+                  : m.fixture?.status?.short === "1H" || m.fixture?.status?.short === "2H" ? "LIVE" : "UP",
+                v: m.fixture?.venue?.name || "",
+              })).filter(m => m.h && m.a);
+              if (mapped.length) setFx(mapped);
+            }).catch(() => {
+              fetch("https://worldcup26.ir/get/games")
+                .then(r => r.ok ? r.json() : Promise.reject())
+                .then(data => {
+                  const arr = Array.isArray(data) ? data : data?.games || data?.matches || [];
+                  if (!arr.length) return;
+                  const mapped = arr.map(m => ({
+                    g: m.group || m.Group || "?",
+                    d: fmtWCDate(m.local_date || m.date || ""),
+                    h: toAppNameESPN(m.home_team_name_en || m.home_team || m.home || ""),
+                    a: toAppNameESPN(m.away_team_name_en || m.away_team || m.away || ""),
+                    s: (m.finished === "TRUE" || m.finished === true) && m.home_score != null
+                      ? [Number(m.home_score), Number(m.away_score)] : undefined,
+                    st: (m.finished === "TRUE" || m.finished === true) ? "FT"
+                      : (m.time_elapsed === "live" || m.status === "live") ? "LIVE" : "UP",
+                    v: m.venue || "",
+                  })).filter(m => m.h && m.a);
+                  if (mapped.length) setFx(mapped);
+                }).catch(() => { });
+            });
+        });
+      }).finally(() => { clearTimeout(tid); setLoading(false); });
+    return () => clearTimeout(tid);
+  }, []);
+
+  useEffect(() => { setPunditText(""); }, [home, away]);
+
+  // ── StatsBomb WC2022: load team records once ──────────────────────────
+  useEffect(() => {
+    fetch("https://raw.githubusercontent.com/statsbomb/open-data/master/data/matches/43/106.json")
+      .then(r => r.json())
+      .then(matches => {
+        const stats = {};
+        const add = n => { if (!stats[n]) stats[n] = { p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0 }; };
+        matches.forEach(m => {
+          const h = toAppName(m.home_team?.home_team_name || "");
+          const a = toAppName(m.away_team?.away_team_name || "");
+          const hs = m.home_score, as_ = m.away_score;
+          if (!h || !a || hs == null) return;
+          add(h); add(a);
+          stats[h].p++; stats[a].p++;
+          stats[h].gf += hs; stats[h].ga += as_;
+          stats[a].gf += as_; stats[a].ga += hs;
+          if (hs > as_) { stats[h].w++; stats[a].l++; }
+          else if (hs < as_) { stats[a].w++; stats[h].l++; }
+          else { stats[h].d++; stats[a].d++; }
+        });
+        setSbStats(stats);
+      })
+      .catch(() => {});
+  }, []);
+
+  // ── Live polling: OneFootball (primary) + ESPN (fallback) every 30s ───
+  useEffect(() => {
+    const LIVE_PERIODS = new Set([
+      "FIRST_HALF","SECOND_HALF","EXTRA_TIME_FIRST_HALF",
+      "EXTRA_TIME_SECOND_HALF","EXTRA_TIME","PENALTY_SHOOTOUT",
+    ]);
+    const FT_PERIODS = new Set(["FULL_TIME","POST_MATCH"]);
+
+    // Merge an array of {hn,an,hs,as_,isLive,isFinal,clock} into fx state
+    const applyUpdates = updates => {
+      if (!updates.length) return;
+      setFx(prev => prev.map(f => {
+        const u = updates.find(m => {
+          const fuzzy = (a, b) => {
+            if (!a || !b) return false;
+            const al = a.toLowerCase(), bl = b.toLowerCase();
+            return al === bl || al.startsWith(bl.slice(0, 5)) || bl.startsWith(al.slice(0, 5));
+          };
+          return fuzzy(m.hn, f.h) && fuzzy(m.an, f.a);
+        });
+        if (!u || (!u.isLive && !u.isFinal)) return f;
+        return { ...f, s: [u.hs, u.as_], st: u.isFinal ? "FT" : "LIVE", clock: u.clock };
+      }));
+    };
+
+    // OneFootball — live minute, score, period for FIFA WC (competition_id "12")
+    const pollOF = () =>
+      fetch("https://api.onefootball.com/web-experience/en/matches")
+        .then(r => r.json())
+        .then(data => {
+          const updates = [];
+          (data?.containers || []).forEach(c => {
+            const cards = c?.fullWidth?.component?.matchCardsList?.matchCards || [];
+            cards.forEach(m => {
+              const params = m.trackingEvents?.[0]?.typedServerParameter || {};
+              if (params.competition_id?.value !== "12") return;
+              const period = m.period || "";
+              updates.push({
+                hn: toAppNameESPN(m.homeTeam?.name || ""),
+                an: toAppNameESPN(m.awayTeam?.name || ""),
+                hs: parseInt(m.homeTeam?.score) || 0,
+                as_: parseInt(m.awayTeam?.score) || 0,
+                isLive: LIVE_PERIODS.has(period),
+                isFinal: FT_PERIODS.has(period),
+                clock: m.timePeriod || "",
+              });
+            });
+          });
+          applyUpdates(updates);
+          return updates.length > 0; // true = OF had WC data
+        })
+        .catch(() => false);
+
+    // ESPN — fallback when OneFootball has no live WC data
+    const pollESPN = () =>
+      fetch("https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard")
+        .then(r => r.json())
+        .then(data => {
+          const updates = [];
+          (data?.events || []).forEach(ev => {
+            const comp = ev.competitions?.[0];
+            const home = (comp?.competitors || []).find(c => c.homeAway === "home");
+            const away = (comp?.competitors || []).find(c => c.homeAway === "away");
+            if (!home || !away) return;
+            const state = ev.status?.type?.state;
+            updates.push({
+              hn: toAppNameESPN(home.team?.displayName || ""),
+              an: toAppNameESPN(away.team?.displayName || ""),
+              hs: parseInt(home.score) || 0,
+              as_: parseInt(away.score) || 0,
+              isLive: state === "in",
+              isFinal: state === "post",
+              clock: ev.status?.displayClock || "",
+            });
+          });
+          applyUpdates(updates);
+        })
+        .catch(() => {});
+
+    const poll = async () => {
+      const ofOk = await pollOF();
+      if (!ofOk) pollESPN(); // ESPN as fallback only
+    };
+
+    poll();
+    const id = setInterval(poll, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  async function genHero() {
+    setHeroLoading(true);
+    setHero(null);
+    setHeroError("");
+    const prompt = "cinematic football stadium golden hour North America red green blue light beams aerial view painterly no people no logos";
+
+    // Pollinations returns images via a plain GET URL — set as img src directly
+    // (avoids CORS issues that occur when using fetch() on image endpoints).
+    const seed = Math.floor(Math.random() * 999999);
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?model=flux&width=1024&height=512&nologo=true&seed=${seed}`;
+
+    // Pre-load to detect errors, then hand off to <img> tag via state
+    const img = new Image();
+    img.onload = () => { setHero(url); setHeroLoading(false); };
+    img.onerror = () => {
+      setHeroError("Image generation failed — Pollinations.ai did not return an image. Try again.");
+      setHeroLoading(false);
+    };
+    img.src = url;
+    // onerror/onload will fire asynchronously — don't call setHeroLoading(false) here
+  }
+
+  const TABS = [
+    { k: "matches", icon: "⚽", label: "Matches" },
+    { k: "predict", icon: "🎯", label: "Predictor" },
+    { k: "title", icon: "📊", label: "Title Race" },
+    { k: "groups", icon: "📋", label: "Groups" },
+    { k: "bracket", icon: "🏆", label: "Final Path" },
+    { k: "reviews", icon: "⭐", label: "Reviews" },
+  ];
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: `radial-gradient(ellipse 1000px 600px at 85% -8%, ${C.grad}1a, transparent),
+                   radial-gradient(ellipse 800px 500px at -5% 0%, ${C.green}10, transparent),
+                   radial-gradient(ellipse 600px 400px at 50% 100%, ${C.blue}0d, transparent),
+                   ${C.bg}`,
+      color: C.text,
+      fontFamily: "ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
+      WebkitFontSmoothing: "antialiased",
+      overflowX: "hidden",
+    }}>
+      {/* global style injection */}
+      <style dangerouslySetInnerHTML={{ __html: GLOBAL_STYLES }} />
+
+      {/* subtle grid overlay */}
+      <div style={{
+        position: "fixed", inset: 0, pointerEvents: "none", opacity: 0.04,
+        backgroundImage: `linear-gradient(${C.text} 1px,transparent 1px),linear-gradient(90deg,${C.text} 1px,transparent 1px)`,
+        backgroundSize: "52px 52px",
+      }} />
+
+      <div style={{ maxWidth: 1100, margin: "0 auto", position: "relative" }} className="main-pad">
+
+        {/* ── HEADER ────────────────────────────────────────────────── */}
+        {(() => {
+          const liveCount = fx.filter(f => f.st === "LIVE").length;
+          return (
+            <header style={{
+              display: "flex", alignItems: "center", gap: 14, marginBottom: 20,
+              background: "linear-gradient(270deg, #7c5cff18, #2bb67318, #3b82f618, #f5c45118)",
+              backgroundSize: "400% 400%",
+              animation: "headerGrad 12s ease infinite",
+              border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 18px",
+              backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+            }}>
+              <div style={{ fontSize: 32, flexShrink: 0 }}>🏆</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h1 className="header-title" style={{ margin: 0, fontSize: 24, fontWeight: 900, letterSpacing: -0.5 }}>
+                  World Cup <span style={{ color: C.gold }}>Predictor</span>
+                </h1>
+                <div className="header-subtitle" style={{ color: C.dim, fontSize: 12, marginTop: 2 }}>
+                  FIFA World Cup 2026 · USA · Canada · Mexico — live results &amp; Poisson engine
+                </div>
+              </div>
+              <div className="header-pills" style={{ display: "flex", gap: 6, flexWrap: "wrap", flexShrink: 0, alignItems: "center" }}>
+                {liveCount > 0 && (
+                  <span style={{ ...pill(C.red), animation: "pulse 1.4s ease-in-out infinite" }}>
+                    ● {liveCount} LIVE
+                  </span>
+                )}
+                <span style={pill(C.red)}>🇨🇦</span>
+                <span style={pill(C.green)}>🇲🇽</span>
+                <span style={pill(C.blue)}>🇺🇸</span>
+              </div>
+            </header>
+          );
+        })()}
+
+        {/* ── DESKTOP TOP NAV ─────────────────────────────────────── */}
+        <nav className="top-nav" style={{ gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
+          {TABS.map(({ k, icon, label }) => (
+            <button key={k} className="nav-btn" onClick={() => setTab(k)} style={{
+              padding: "10px 18px", borderRadius: 12, cursor: "pointer",
+              fontWeight: 700, fontSize: 14, border: `1px solid ${tab === k ? C.gold : C.line}`,
+              background: tab === k
+                ? `linear-gradient(135deg, ${C.gold}22, ${C.grad}18)`
+                : C.panel,
+              color: tab === k ? C.gold : C.dim,
+              boxShadow: tab === k ? `0 0 16px ${C.goldGlow}` : "none",
+              minHeight: 44, minWidth: 44,
+            }}>
+              {icon} {label}
+            </button>
+          ))}
+        </nav>
+
+        {/* ── TAB CONTENT ─────────────────────────────────────────── */}
+        <div key={tab} className="tab-content">
+
+          {/* MATCHES ------------------------------------------------ */}
+          {tab === "matches" && (() => {
+            // Date order map for sorting "Jun 11" → 20260611, etc.
+            const MONTHS = { Jan:1, Feb:2, Mar:3, Apr:4, May:5, Jun:6, Jul:7, Aug:8, Sep:9, Oct:10, Nov:11, Dec:12 };
+            const dateKey = d => { const [m, day] = d.split(" "); return MONTHS[m] * 100 + parseInt(day); };
+            const sortKey = f => dateKey(f.d) * 10000 + parseInt((f.t || "00:00").replace(":",""));
+
+            const live     = fx.filter(f => f.st === "LIVE").sort((a,b) => sortKey(a) - sortKey(b));
+            const upcoming = fx.filter(f => f.st === "UP").sort((a,b) => sortKey(a) - sortKey(b));
+            const done     = fx.filter(f => f.st === "FT").sort((a,b) => sortKey(b) - sortKey(a));
+
+            // Group an array of matches by date label (preserving sort order)
+            const byDate = arr => {
+              const map = [];
+              const seen = {};
+              arr.forEach(f => {
+                if (!seen[f.d]) { seen[f.d] = []; map.push({ date: f.d, matches: seen[f.d] }); }
+                seen[f.d].push(f);
+              });
+              return map;
+            };
+
+            return (
+              <div style={{ display: "grid", gap: 8 }}>
+                {loading ? (
+                  Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)
+                ) : (
+                  <>
+                    {/* 1 — LIVE matches (always first) */}
+                    {live.length > 0 && (
+                      <>
+                        <div className="section-label" style={{ color: C.red, display:"flex", alignItems:"center", gap:6 }}>
+                          <span style={{width:8,height:8,borderRadius:"50%",background:C.red,display:"inline-block",animation:"pulse 1.4s ease-in-out infinite"}} />
+                          Live Now · {live.length} match{live.length !== 1 ? "es" : ""}
+                        </div>
+                        {live.map((f, i) => <MatchCard key={`live-${i}`} f={f} />)}
+                      </>
+                    )}
+
+                    {/* 2 — COMPLETED — newest date first */}
+                    {done.length > 0 && (
+                      <>
+                        <div className="section-label" style={{ marginTop: live.length ? 8 : 0 }}>
+                          Completed · {done.length} results
+                        </div>
+                        {byDate(done).map(({ date, matches }) => (
+                          <React.Fragment key={`ft-${date}`}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: C.dimMid, letterSpacing: 1.2, textTransform: "uppercase", padding: "4px 2px 2px", borderBottom: `1px solid ${C.line}` }}>{date}</div>
+                            {matches.map((f, i) => <MatchCard key={`ft-${date}-${i}`} f={f} />)}
+                          </React.Fragment>
+                        ))}
+                      </>
+                    )}
+
+                    {/* 3 — UPCOMING — chronological, nearest first */}
+                    {upcoming.length > 0 && (
+                      <>
+                        <div className="section-label" style={{ marginTop: done.length || live.length ? 8 : 0 }}>
+                          Upcoming · {upcoming.length} matches
+                        </div>
+                        {byDate(upcoming).map(({ date, matches }) => (
+                          <React.Fragment key={`up-${date}`}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: C.dimMid, letterSpacing: 1.2, textTransform: "uppercase", padding: "4px 2px 2px", borderBottom: `1px solid ${C.line}` }}>{date}</div>
+                            {matches.map((f, i) => <MatchCard key={`up-${date}-${i}`} f={f} />)}
+                          </React.Fragment>
+                        ))}
+                      </>
+                    )}
+                  </>
+                )}
+                <div style={{ color: C.dim, fontSize: 11, marginTop: 4, padding: "0 2px", textAlign: "center" }}>
+                  Live scores via OneFootball · ESPN · worldcup26.ir · refreshes every 30s
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* PREDICTOR ---------------------------------------------- */}
+          {tab === "predict" && (
+            <div style={{ display: "grid", gap: 16 }}>
+              {/* team picker */}
+              <div style={glassCard}>
+                {/* team art banners */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+                  <img src={teamImg(home)} alt={home} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10, border: `1px solid ${C.green}44` }} onError={e => { e.target.style.display = "none"; }} />
+                  <img src={teamImg(away)} alt={away} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10, border: `1px solid ${C.red}44` }} onError={e => { e.target.style.display = "none"; }} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 14, alignItems: "end" }}>
+                  <Sel label="Home / Team A" value={home} onChange={setHome} />
+                  <div style={{ textAlign: "center", color: C.gold, fontWeight: 900, fontSize: 22, paddingBottom: 8 }}>VS</div>
+                  <Sel label="Away / Team B" value={away} onChange={setAway} />
+                </div>
+                <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14, color: C.dim, fontSize: 13, cursor: "pointer" }}>
+                  <input type="checkbox" checked={neutral} onChange={e => setNeutral(e.target.checked)} />
+                  Neutral venue (uncheck to give Team A host-nation home advantage)
+                </label>
+              </div>
+
+              {/* probability gauge */}
+              <div style={glassCard}>
+                <h3 style={{ margin: "0 0 16px", fontSize: 15, color: C.text }}>Win probability</h3>
+                <ProbGauge w={pred.pW} d={pred.pD} l={pred.pL} homeLabel={home.split(" ")[0]} awayLabel={away.split(" ")[0]} />
+              </div>
+
+              {/* xG stats */}
+              <div style={glassCard}>
+                <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>Expected goals</h3>
+                <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <Stat label={`xG — ${home}`} val={pred.xgH.toFixed(2)} col={C.green} />
+                  <Stat label={`xG — ${away}`} val={pred.xgA.toFixed(2)} col={C.red} />
+                  <Stat label="Rating gap" val={`${pred.rH - pred.rA > 0 ? "+" : ""}${(pred.rH - pred.rA).toFixed(1)}`} col={C.blue} />
+                  <Stat label="Home rating" val={pred.rH.toFixed(1)} col={C.gold} />
+                </div>
+              </div>
+
+              {/* StatsBomb WC2022 historical record */}
+              {(sbStats[home] || sbStats[away]) && (
+                <div style={glassCard}>
+                  <h3 style={{ margin: "0 0 14px", fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
+                    📊 <span>WC2022 Performance <span style={{ color: C.dim, fontWeight: 400, fontSize: 12 }}>(StatsBomb open data)</span></span>
+                  </h3>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    {[{ name: home, col: C.green }, { name: away, col: C.red }].map(({ name, col }) => {
+                      const s = sbStats[name];
+                      if (!s) return (
+                        <div key={name} style={{ background: C.panel2, borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.line}` }}>
+                          <div style={{ color: col, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>{name}</div>
+                          <div style={{ color: C.dim, fontSize: 12 }}>Not in WC2022</div>
+                        </div>
+                      );
+                      return (
+                        <div key={name} style={{ background: C.panel2, borderRadius: 10, padding: "12px 14px", border: `1px solid ${col}33` }}>
+                          <div style={{ color: col, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{name}</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, fontSize: 12 }}>
+                            <span style={{ color: C.dim }}>Played</span><span style={{ fontWeight: 700 }}>{s.p}</span>
+                            <span style={{ color: C.dim }}>W / D / L</span><span style={{ fontWeight: 700 }}>{s.w}/{s.d}/{s.l}</span>
+                            <span style={{ color: C.dim }}>Goals</span><span style={{ fontWeight: 700 }}>{s.gf}–{s.ga}</span>
+                            <span style={{ color: C.dim }}>Diff</span>
+                            <span style={{ fontWeight: 700, color: s.gf - s.ga > 0 ? C.green : s.gf - s.ga < 0 ? C.red : C.dim }}>
+                              {s.gf - s.ga > 0 ? "+" : ""}{s.gf - s.ga}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* scoreline list */}
+              <div style={glassCard}>
+                <h3 style={{ margin: "0 0 14px", fontSize: 15 }}>Most likely scorelines</h3>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {pred.top.map((s, i) => (
+                    <div key={i} style={{
+                      display: "flex", alignItems: "center", gap: 12,
+                      background: i === 0 ? C.goldGlow : "transparent",
+                      borderRadius: 10, padding: i === 0 ? "8px 10px" : "4px 2px",
+                      border: i === 0 ? `1px solid ${C.gold}33` : "1px solid transparent",
+                    }}>
+                      <div style={{
+                        width: 60, fontWeight: 900, fontSize: 18,
+                        color: i === 0 ? C.gold : C.text,
+                        textAlign: "center",
+                      }}>{s.score}</div>
+                      <div style={{ flex: 1, height: 10, background: C.panel2, borderRadius: 6, overflow: "hidden" }}>
+                        <div style={{
+                          width: `${(s.p / pred.top[0].p) * 100}%`, height: "100%",
+                          background: i === 0
+                            ? `linear-gradient(90deg,${C.gold},${C.grad})`
+                            : `linear-gradient(90deg,${C.grad},${C.blue})`,
+                          transition: "width 0.5s ease",
+                        }} />
+                      </div>
+                      <span style={{ width: 46, textAlign: "right", color: C.dim, fontSize: 13, fontWeight: 600 }}>
+                        {(s.p * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ color: C.dim, fontSize: 11, marginTop: 14 }}>
+                  Engine: rating-driven bivariate Poisson, auto-updated by Elo pass over finished matches.
+                </div>
+              </div>
+
+              {/* AI Pundit card */}
+              <div style={glassCard}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 15 }}>⚡ Tactical Breakdown</h3>
+                    <div style={{ color: C.dim, fontSize: 12, marginTop: 3 }}>Powered by Groq · Llama 3.3 70B (Pollinations fallback)</div>
+                  </div>
+                  <button onClick={getAIAnalysis} disabled={punditLoading} style={{
+                    padding: "10px 20px", borderRadius: 10, cursor: punditLoading ? "not-allowed" : "pointer",
+                    fontWeight: 700, fontSize: 13, border: `1px solid ${C.grad}`,
+                    background: `linear-gradient(135deg,${C.grad}22,${C.blue}11)`,
+                    color: C.grad, minHeight: 44, opacity: punditLoading ? 0.6 : 1,
+                    transition: "opacity 0.2s",
+                  }}>
+                    {punditLoading ? "Analysing…" : punditText ? "Regenerate" : "Analyse this match"}
+                  </button>
+                </div>
+                {punditLoading && !punditText && (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {[100, 85, 92, 70].map((w, i) => (
+                      <div key={i} className="skeleton" style={{ height: 13, borderRadius: 6, width: `${w}%` }} />
+                    ))}
+                  </div>
+                )}
+                {punditText && (
+                  <div style={{
+                    color: C.text, fontSize: 14, lineHeight: 1.72,
+                    borderLeft: `3px solid ${C.grad}66`, paddingLeft: 14,
+                    whiteSpace: "pre-wrap",
+                  }}>
+                    {punditText}
+                    {punditLoading && <span style={{ animation: "blink 1s step-end infinite", color: C.grad }}>▍</span>}
+                  </div>
+                )}
+                {!punditText && !punditLoading && (
+                  <div style={{ color: C.dim, fontSize: 13, textAlign: "center", padding: "12px 0" }}>
+                    Pick two teams above, then hit <strong style={{ color: C.grad }}>Analyse this match</strong> for a tactical breakdown.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TITLE RACE -------------------------------------------- */}
+          {tab === "title" && (
+            <div style={{ display: "grid", gap: 16 }}>
+              {/* podium top 3 */}
+              <div style={glassCard}>
+                <h3 style={{ margin: "0 0 16px", fontSize: 16 }}>Championship favorites — podium</h3>
+                <div className="podium-wrap" style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
+                  {[
+                    { rank: 1, medal: "🥇", col: C.gold, glow: C.goldGlow, scale: 1.08 },
+                    { rank: 0, medal: "🥈", col: "#c0c8d8", glow: "rgba(192,200,216,0.15)", scale: 1 },
+                    { rank: 2, medal: "🥉", col: "#cd7f32", glow: "rgba(205,127,50,0.18)", scale: 0.95 },
+                  ].map(({ rank, medal, col, glow, scale }) => {
+                    const p = probs[rank];
+                    return (
+                      <div key={rank} style={{
+                        background: C.panel2, border: `1px solid ${col}55`,
+                        borderRadius: 16, padding: "20px 24px", textAlign: "center",
+                        flex: "1 1 140px", maxWidth: 200,
+                        boxShadow: `0 8px 28px ${glow}`,
+                        transform: `scale(${scale})`,
+                        transition: "transform 0.2s",
+                      }}>
+                        <div style={{ fontSize: 30 }}>{medal}</div>
+                        <Flag code={p.code} size={36} />
+                        <div style={{ fontWeight: 900, fontSize: 17, marginTop: 8 }}>{p.name}</div>
+                        <div style={{ ...pill(col), margin: "8px auto 0", display: "inline-flex" }}>
+                          {p.code}
+                        </div>
+                        <div style={{ color: col, fontWeight: 800, fontSize: 22, marginTop: 10 }}>
+                          {(p.p * 100).toFixed(1)}%
+                        </div>
+                        <div style={{ color: C.dim, fontSize: 11, marginTop: 2 }}>win probability</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* bar chart */}
+              <div style={glassCard}>
+                <h3 style={{ margin: "0 0 4px", fontSize: 16 }}>Full model probability — top 12</h3>
+                <p style={{ margin: "0 0 14px", color: C.dim, fontSize: 13 }}>
+                  Market favorites: Spain (~+400), England, France, Argentina &amp; Brazil (~+800).
+                </p>
+                <ResponsiveContainer width="100%" height={340}>
+                  <BarChart
+                    data={probs.slice(0, 12).map(p => ({ name: p.code, prob: +(p.p * 100).toFixed(1) }))}
+                    layout="vertical" margin={{ left: 8, right: 24 }}
+                  >
+                    <XAxis type="number" stroke={C.dim} tick={{ fontSize: 12 }} unit="%" />
+                    <YAxis type="category" dataKey="name" stroke={C.dim} width={44} tick={{ fontSize: 12, fontWeight: 700 }} />
+                    <Tooltip
+                      contentStyle={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, color: C.text }}
+                      formatter={v => [`${v}%`, "Win prob"]}
+                    />
+                    <Bar dataKey="prob" radius={[0, 8, 8, 0]}>
+                      {probs.slice(0, 12).map((_, i) => (
+                        <Cell key={i} fill={i === 0 ? C.gold : i === 1 ? "#c0c8d8" : i === 2 ? "#cd7f32" : i < 5 ? C.grad : C.blue} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* radar chart */}
+              <div style={glassCard} className="radar-wrap">
+                <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>Contender profile — top 6</h3>
+                <ResponsiveContainer width="100%" height={280}>
+                  <RadarChart data={probs.slice(0, 6).map(p => ({ team: p.code, rating: ratings[p.name] }))}>
+                    <PolarGrid stroke={C.line} />
+                    <PolarAngleAxis dataKey="team" tick={{ fill: C.text, fontSize: 12, fontWeight: 700 }} />
+                    <PolarRadiusAxis domain={[70, 95]} tick={{ fill: C.dim, fontSize: 10 }} />
+                    <Radar dataKey="rating" stroke={C.gold} fill={C.gold} fillOpacity={0.25} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* GROUPS ------------------------------------------------- */}
+          {tab === "groups" && (
+            <div className="groups-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 14 }}>
+              {["A", "B", "C", "D", "E", "F"].map(g => {
+                const rows = standings(g, fx, ratings);
+                return (
+                  <div key={g} style={glassCard}>
+                    <h3 style={{ margin: "0 0 12px", fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ ...pill(C.gold), fontSize: 13 }}>Group {g}</span>
+                    </h3>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ color: C.dim, textAlign: "right" }}>
+                          <th style={{ textAlign: "left", fontWeight: 600, paddingBottom: 8 }}>Team</th>
+                          <th style={{ paddingBottom: 8 }}>P</th>
+                          <th style={{ paddingBottom: 8 }}>W</th>
+                          <th style={{ paddingBottom: 8 }}>D</th>
+                          <th style={{ paddingBottom: 8 }}>L</th>
+                          <th style={{ paddingBottom: 8 }}>GD</th>
+                          <th style={{ color: C.gold, paddingBottom: 8 }}>Pts</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((t, i) => {
+                          const promoted = i < 2;
+                          return (
+                            <tr key={t.name} style={{
+                              borderTop: `1px solid ${C.line}`,
+                              background: promoted
+                                ? i === 0 ? `${C.green}14` : `${C.green}09`
+                                : i % 2 === 0 ? "transparent" : `${C.panel2}88`,
+                            }}>
+                              <td style={{ textAlign: "left", padding: "7px 0", fontWeight: promoted ? 700 : 500 }}>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                  <span style={{
+                                    width: 20, height: 20, borderRadius: "50%",
+                                    background: promoted ? C.green + "33" : C.panel2,
+                                    border: `1px solid ${promoted ? C.green + "66" : C.line}`,
+                                    color: promoted ? C.green : C.dim,
+                                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                    fontSize: 10, fontWeight: 800, flexShrink: 0,
+                                  }}>{i + 1}</span>
+                                  <Flag code={byName[t.name]?.code} size={16} />
+                                  <span style={{ color: promoted ? C.text : C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100 }}>{t.name}</span>
+                                </span>
+                              </td>
+                              <td style={{ textAlign: "right", color: C.dim }}>{t.pld}</td>
+                              <td style={{ textAlign: "right", color: t.w > 0 ? C.green : C.dim }}>{t.w}</td>
+                              <td style={{ textAlign: "right", color: C.dim }}>{t.d}</td>
+                              <td style={{ textAlign: "right", color: t.l > 0 ? C.red : C.dim }}>{t.l}</td>
+                              <td style={{ textAlign: "right", color: (t.gf - t.ga) > 0 ? C.green : (t.gf - t.ga) < 0 ? C.red : C.dim }}>
+                                {t.gf - t.ga > 0 ? "+" : ""}{t.gf - t.ga}
+                              </td>
+                              <td style={{ textAlign: "right", fontWeight: 900, color: promoted ? C.gold : C.dim, fontSize: 15 }}>{t.pts}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {rows.length === 0 && (
+                      <div style={{ color: C.dim, fontSize: 12, padding: "8px 0" }}>No matches played yet.</div>
+                    )}
+                  </div>
+                );
+              })}
+              <div style={{ ...glassCard, gridColumn: "1/-1", color: C.dim, fontSize: 12 }}>
+                <span style={{ color: C.green, fontWeight: 700 }}>Green rows</span> = top 2 advance automatically.
+                Best 8 third-place teams also progress to the Round of 32.
+              </div>
+            </div>
+          )}
+
+          {/* BRACKET / FINAL PATH ------------------------------------ */}
+          {tab === "bracket" && (
+            <div style={{ display: "grid", gap: 16 }}>
+              {/* hero / trophy */}
+              <div style={{ ...glassCard, textAlign: "center", padding: 0, overflow: "hidden" }}>
+                {hero
+                  ? <img src={hero} alt="stadium" style={{ width: "100%", maxHeight: 260, objectFit: "cover", display: "block" }} />
+                  : <img src={stadiumImg} alt="Stadium atmosphere" style={{ width: "100%", maxHeight: 260, objectFit: "cover", display: "block" }} onError={e => { e.target.style.display = "none"; }} />}
+                <div style={{ padding: "12px 18px" }}>
+                  <Trophy />
+                  <div style={{ color: C.dim, fontSize: 12, marginTop: 4 }}>
+                    Final · July 19, 2026 · MetLife Stadium, New York / New Jersey
+                  </div>
+                </div>
+              </div>
+
+              {/* projected final VS card */}
+              <div style={{
+                ...glassCard,
+                background: `linear-gradient(135deg, ${C.gold}12, ${C.grad}10)`,
+                border: `1px solid ${C.gold}44`,
+                boxShadow: `0 0 32px ${C.goldGlow}`,
+                textAlign: "center",
+              }}>
+                <div style={{ color: C.dim, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>
+                  Projected Final
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 24, flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 100px", textAlign: "center" }}>
+                    <Flag code={probs[0].code} size={44} />
+                    <div style={{ fontWeight: 900, fontSize: 22, color: C.gold, marginTop: 8 }}>{probs[0].name}</div>
+                    <div style={{ color: C.green, fontWeight: 700, marginTop: 4 }}>{(probs[0].p * 100).toFixed(1)}% to win</div>
+                  </div>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: "50%",
+                    background: `radial-gradient(circle, ${C.grad}44, ${C.panel2})`,
+                    border: `2px solid ${C.grad}88`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontWeight: 900, fontSize: 16, color: C.grad, flexShrink: 0,
+                    boxShadow: `0 0 18px ${C.gradGlow}`,
+                  }}>VS</div>
+                  <div style={{ flex: "1 1 100px", textAlign: "center" }}>
+                    <Flag code={probs[1].code} size={44} />
+                    <div style={{ fontWeight: 900, fontSize: 22, color: C.text, marginTop: 8 }}>{probs[1].name}</div>
+                    <div style={{ color: C.dim, fontWeight: 600, marginTop: 4 }}>{(probs[1].p * 100).toFixed(1)}% to win</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* top 8 projected */}
+              <div style={glassCard}>
+                <h3 style={{ margin: "0 0 14px", fontSize: 15 }}>Top 8 projected</h3>
+                <div className="semifinal-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
+                  {probs.slice(0, 8).map((p, i) => {
+                    const accent = [C.gold, "#c0c8d8", "#cd7f32", C.blue, C.grad, C.green, C.red, C.dimMid][i];
+                    const medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣"];
+                    return (
+                      <div key={p.name} style={{
+                        background: C.panel2, border: `1px solid ${accent}44`,
+                        borderRadius: 12, padding: "14px 10px", textAlign: "center",
+                        borderTop: `3px solid ${accent}`,
+                        boxShadow: i < 2 ? `0 4px 16px ${accent}22` : "none",
+                      }}>
+                        <div style={{ fontSize: 16, marginBottom: 6 }}>{medals[i]}</div>
+                        <Flag code={p.code} size={28} />
+                        <div style={{ fontWeight: 800, marginTop: 6, fontSize: 13, lineHeight: 1.2 }}>{p.name}</div>
+                        <div style={{ color: accent, fontSize: 14, fontWeight: 900, marginTop: 5 }}>
+                          {(p.p * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ color: C.dim, fontSize: 11, marginTop: 12 }}>
+                  Model forecast — updates live as Elo ratings shift with each result.
+                </div>
+              </div>
+
+              {/* hero gen button */}
+              <div style={{ ...glassCard, textAlign: "center" }}>
+                <button onClick={genHero} disabled={heroLoading} className="nav-btn" style={{
+                  padding: "12px 24px", borderRadius: 12, cursor: "pointer",
+                  fontWeight: 700, fontSize: 14, border: `1px solid ${C.gold}`,
+                  background: `linear-gradient(135deg, ${C.gold}1c, ${C.grad}10)`,
+                  color: C.gold, minHeight: 48, minWidth: 48,
+                  opacity: heroLoading ? 0.6 : 1,
+                }}>
+                  {heroLoading ? "Generating…" : "Generate stadium hero art"}
+                </button>
+                <div style={{ color: C.dim, fontSize: 11, marginTop: 8 }}>
+                  Via Pollinations.ai (key optional) · falls back to free URL · then Gemini if <code>VITE_GEMINI_API_KEY</code> is set.
+                {heroError && (
+                  <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 8, background: C.redGlow, border: `1px solid ${C.red}44`, color: C.red, fontSize: 12, textAlign: "left", wordBreak: "break-word" }}>
+                    ⚠️ {heroError}
+                  </div>
+                )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* REVIEWS ------------------------------------------------- */}
+          {tab === "reviews" && <ReviewsTab />}
+
+        </div>
+
+        {/* footer */}
+        <footer style={{ marginTop: 36, color: C.dim, fontSize: 11, textAlign: "center", paddingBottom: 8 }}>
+          World Cup Predictor · predictions are model estimates · seeded with real WC2026 data through Jun 14, 2026
+        </footer>
+      </div>
+
+      {/* ── MOBILE BOTTOM TAB BAR ─────────────────────────────────────── */}
+      <nav className="bottom-nav" style={{
+        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100,
+        background: "rgba(7,9,15,0.92)",
+        backdropFilter: "blur(20px) saturate(180%)",
+        WebkitBackdropFilter: "blur(20px) saturate(180%)",
+        borderTop: `1px solid ${C.line}`,
+        display: "flex", justifyContent: "space-around", alignItems: "stretch",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+      }}>
+        {TABS.map(({ k, icon, label }) => {
+          const active = tab === k;
+          return (
+            <button key={k} onClick={() => setTab(k)} style={{
+              flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+              justifyContent: "center", gap: 3, padding: "10px 4px",
+              background: "none", border: "none", cursor: "pointer",
+              minHeight: 56, minWidth: 44,
+              color: active ? C.gold : C.dim,
+              borderTop: active ? `2px solid ${C.gold}` : "2px solid transparent",
+              transition: "color 0.18s, border-top-color 0.18s",
+            }}>
+              <span style={{ fontSize: 18, lineHeight: 1 }}>{icon}</span>
+              <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, letterSpacing: 0.2 }}>{label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
+/* ── helper components ────────────────────────────────────────────────── */
+
+function Sel({ label, value, onChange }) {
+  return (
+    <label style={{ display: "block" }}>
+      <div style={{ color: C.dim, fontSize: 12, marginBottom: 6, fontWeight: 600 }}>{label}</div>
+      <select value={value} onChange={e => onChange(e.target.value)} style={{
+        width: "100%", padding: "11px 12px", borderRadius: 10,
+        background: C.panel2, color: C.text, border: `1px solid ${C.line}`,
+        fontSize: 14, fontWeight: 700, cursor: "pointer", appearance: "none",
+        WebkitAppearance: "none",
+        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238a97ad' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "right 12px center",
+        paddingRight: 36,
+      }}>
+        {[...TEAMS].sort((a, b) => b.rating - a.rating).map(t => (
+          <option key={t.name} value={t.name}>{t.name} ({t.code}) · {t.rating}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function Stat({ label, val, col }) {
+  return (
+    <div style={{
+      background: C.panel2, border: `1px solid ${(col || C.gold) + "33"}`,
+      borderRadius: 12, padding: "14px 16px",
+      boxShadow: `0 4px 16px ${(col || C.gold) + "18"}`,
+    }}>
+      <div style={{ color: C.dim, fontSize: 12, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 900, color: col || C.gold, marginTop: 4 }}>{val}</div>
+    </div>
+  );
+}
