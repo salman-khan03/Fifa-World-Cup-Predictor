@@ -193,13 +193,6 @@ vercel --prod
 
 Add all `VITE_*` variables in the Vercel dashboard under **Settings → Environment Variables**.
 
-### Netlify
-
-```bash
-npm run build
-netlify deploy --prod --dir=dist
-```
-
 ### Preview locally
 
 ```bash
