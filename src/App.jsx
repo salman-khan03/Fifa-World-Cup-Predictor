@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from "recharts";
-import { supabase } from './supabase.js';
+import { supabase, isSupabaseConfigured } from './supabase.js';
 
 /* =========================================================================
    WORLD CUP PREDICTOR — FIFA World Cup 2026
@@ -15,27 +15,30 @@ import { supabase } from './supabase.js';
    for proper mobile scaling on iOS and Android.
    ========================================================================= */
 
+// Palette references CSS variables so a single [data-theme] swap re-themes the
+// whole app instantly — no need to touch the 400+ C.* usage sites. Dark + light
+// variable sets are defined in GLOBAL_STYLES below.
 const C = {
-  bg: "#07090f",
-  panel: "#0f1520",
-  panel2: "#0a0f1a",
-  panelGlass: "rgba(15,21,32,0.72)",
-  line: "#1a2438",
-  lineHover: "#2a3a55",
-  text: "#e8edf6",
-  dim: "#7a8899",
-  dimMid: "#a0aec0",
-  gold: "#f5c451",
-  goldDim: "#9a7d2e",
-  goldGlow: "rgba(245,196,81,0.22)",
-  red: "#e23744",
-  redGlow: "rgba(226,55,68,0.2)",
-  green: "#2bb673",
-  greenGlow: "rgba(43,182,115,0.2)",
-  blue: "#3b82f6",
-  blueGlow: "rgba(59,130,246,0.2)",
-  grad: "#7c5cff",
-  gradGlow: "rgba(124,92,255,0.2)",
+  bg:         "var(--c-bg)",
+  panel:      "var(--c-panel)",
+  panel2:     "var(--c-panel2)",
+  panelGlass: "var(--c-panelGlass)",
+  line:       "var(--c-line)",
+  lineHover:  "var(--c-lineHover)",
+  text:       "var(--c-text)",
+  dim:        "var(--c-dim)",
+  dimMid:     "var(--c-dimMid)",
+  gold:       "var(--c-gold)",
+  goldDim:    "var(--c-goldDim)",
+  goldGlow:   "var(--c-goldGlow)",
+  red:        "var(--c-red)",
+  redGlow:    "var(--c-redGlow)",
+  green:      "var(--c-green)",
+  greenGlow:  "var(--c-greenGlow)",
+  blue:       "var(--c-blue)",
+  blueGlow:   "var(--c-blueGlow)",
+  grad:       "var(--c-grad)",
+  gradGlow:   "var(--c-gradGlow)",
 };
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
@@ -402,6 +405,38 @@ function MatchCard({ f }) {
   const homeWon = isFT && f.s && f.s[0] > f.s[1];
   const awayWon = isFT && f.s && f.s[1] > f.s[0];
 
+  // ── AI commentary (ElevenLabs via /api/commentary) ────────────────────────
+  const [commentaryState, setCommentaryState] = useState("idle"); // idle | loading | playing | error
+  async function playCommentary() {
+    if (commentaryState === "loading" || commentaryState === "playing") return;
+    setCommentaryState("loading");
+    const line = f.s
+      ? `${f.h} ${f.s[0]}, ${f.a} ${f.s[1]}. Full time at the final whistle. ${
+          homeWon ? f.h : awayWon ? f.a : "Neither side"
+        } ${homeWon || awayWon ? "takes the win" : "settle for a share of the points"} here in the 2026 World Cup.`
+      : `${f.h} versus ${f.a}, coming up next in the World Cup.`;
+    try {
+      const r = await fetch("/api/commentary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: line }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.error || "Commentary unavailable");
+      }
+      const blob = await r.blob();
+      const audio = new Audio(URL.createObjectURL(blob));
+      audio.onended = () => setCommentaryState("idle");
+      audio.onerror = () => setCommentaryState("error");
+      setCommentaryState("playing");
+      audio.play();
+    } catch {
+      setCommentaryState("error");
+      setTimeout(() => setCommentaryState("idle"), 2500);
+    }
+  }
+
   // Mouse-follow 3D tilt — perspective rotation toward the cursor + sheen position
   const ref = useRef(null);
   function handleTilt(e) {
@@ -481,12 +516,27 @@ function MatchCard({ f }) {
         </div>
       </div>
 
-      {/* venue */}
-      {f.v && (
-        <div style={{ marginTop: 8, color: C.dim, fontSize: 11, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          📍 {f.v}
-        </div>
-      )}
+      {/* venue + AI commentary */}
+      <div style={{ marginTop: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+        {f.v && (
+          <span style={{ color: C.dim, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            📍 {f.v}
+          </span>
+        )}
+        {isFT && (
+          <button onClick={playCommentary} disabled={commentaryState === "loading" || commentaryState === "playing"}
+            title="AI match commentary (ElevenLabs)"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 9px",
+              borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: "pointer",
+              border: `1px solid ${C.gold}44`, background: C.goldGlow, color: C.gold,
+              opacity: commentaryState === "loading" ? 0.6 : 1,
+            }}>
+            {commentaryState === "loading" ? "⏳" : commentaryState === "playing" ? "🔊" : commentaryState === "error" ? "⚠️" : "🔈"}
+            {commentaryState === "loading" ? "Loading…" : commentaryState === "playing" ? "Playing…" : commentaryState === "error" ? "Unavailable" : "Hear the call"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -504,6 +554,41 @@ const StatusChip = ({ st, clock }) => {
 
 /* ── global injected styles ───────────────────────────────────────────── */
 const GLOBAL_STYLES = `
+  /* ── Dark theme (default) ── */
+  :root {
+    --c-bg: #07090f;      --c-panel: #0f1520;    --c-panel2: #0a0f1a;
+    --c-panelGlass: rgba(15,21,32,0.72);
+    --c-line: #1a2438;    --c-lineHover: #2a3a55;
+    --c-text: #e8edf6;    --c-dim: #7a8899;      --c-dimMid: #a0aec0;
+    --c-gold: #f5c451;    --c-goldDim: #9a7d2e;  --c-goldGlow: rgba(245,196,81,0.22);
+    --c-red: #e23744;     --c-redGlow: rgba(226,55,68,0.2);
+    --c-green: #2bb673;   --c-greenGlow: rgba(43,182,115,0.2);
+    --c-blue: #3b82f6;    --c-blueGlow: rgba(59,130,246,0.2);
+    --c-grad: #7c5cff;    --c-gradGlow: rgba(124,92,255,0.2);
+  }
+  /* ── Light theme ── */
+  [data-theme="light"] {
+    --c-bg: #f4f6fb;      --c-panel: #ffffff;    --c-panel2: #eef1f7;
+    --c-panelGlass: rgba(255,255,255,0.78);
+    --c-line: #d8dee9;    --c-lineHover: #b9c4d6;
+    --c-text: #15202b;    --c-dim: #5a6b7d;      --c-dimMid: #44505e;
+    --c-gold: #b8860b;    --c-goldDim: #8a6608;  --c-goldGlow: rgba(184,134,11,0.16);
+    --c-red: #c92a36;     --c-redGlow: rgba(201,42,54,0.13);
+    --c-green: #1a8f57;   --c-greenGlow: rgba(26,143,87,0.13);
+    --c-blue: #2563eb;    --c-blueGlow: rgba(37,99,235,0.13);
+    --c-grad: #6741e0;    --c-gradGlow: rgba(103,65,224,0.13);
+  }
+  html { transition: none; }
+  body, .app-root, .glass, .match-card, .nav-btn { transition: background 0.25s ease, color 0.25s ease, border-color 0.25s ease; }
+
+  .app-root {
+    background:
+      radial-gradient(ellipse 1000px 600px at 85% -8%, color-mix(in srgb, var(--c-grad) 10%, transparent), transparent),
+      radial-gradient(ellipse 800px 500px at -5% 0%, color-mix(in srgb, var(--c-green) 6%, transparent), transparent),
+      radial-gradient(ellipse 600px 400px at 50% 100%, color-mix(in srgb, var(--c-blue) 5%, transparent), transparent),
+      var(--c-bg);
+  }
+
   *, *::before, *::after { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; overscroll-behavior: none; }
   body { background: ${C.bg}; }
@@ -829,6 +914,11 @@ function ReviewsTab() {
         <h3 style={{ margin: "0 0 16px", fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}>
           ✍️ Leave a Review
         </h3>
+        {!isSupabaseConfigured && (
+          <div style={{ background: C.redGlow, border: `1px solid ${C.red}44`, borderRadius: 8, padding: "10px 14px", color: C.red, fontSize: 13, marginBottom: 14 }}>
+            ⚠️ Reviews database isn't connected on this deployment. Add <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> in your hosting env vars, then run <code>supabase/reviews.sql</code>.
+          </div>
+        )}
         {submitted ? (
           <div style={{ textAlign: "center", padding: "22px 0", color: C.gold, fontWeight: 800, fontSize: 17 }}>
             Review submitted! ⭐ Saved to database.
@@ -1076,193 +1166,6 @@ function ReviewsTab() {
 
 /* ── Pricing / Premium ────────────────────────────────────────────────── */
 
-const PRICING_TIERS = [
-  {
-    key: null, name: "Free", price: "$0", cadence: "forever", accent: C.dimMid,
-    cta: "Current plan",
-    features: [
-      "Live scores & fixtures",
-      "Group standings & qualification",
-      "Basic win / draw / loss probability",
-      "Community & Google reviews",
-    ],
-  },
-  {
-    key: "pro_monthly", name: "Pro", price: "$4.99", cadence: "per month", accent: C.grad,
-    cta: "Go Pro monthly",
-    features: [
-      "Everything in Free",
-      "⚡ Unlimited AI tactical breakdowns",
-      "🎨 Stadium hero-art generation",
-      "📊 Advanced xG & radar stats",
-      "🏆 Full knockout bracket simulator",
-      "🚫 No ads",
-    ],
-  },
-  {
-    key: "tournament", name: "Tournament Pass", price: "$9.99", cadence: "one-time · through the Final", accent: C.gold,
-    badge: "BEST VALUE", cta: "Unlock the whole tournament",
-    features: [
-      "Everything in Pro",
-      "Locked in through July 19, 2026",
-      "No subscription, no renewals",
-      "One payment, the entire World Cup",
-    ],
-  },
-];
-
-function PricingTab({ isPro, tier, loading, sessionKey, authHeaders, user, onSignIn }) {
-  const [busy, setBusy] = useState(null);
-  const [err, setErr] = useState("");
-
-  async function checkout(tierKey) {
-    setErr(""); setBusy(tierKey);
-    try {
-      const r = await fetch("/api/create-checkout", {
-        method: "POST", headers: await authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ tier: tierKey, sessionKey }),
-      });
-      const d = await r.json();
-      if (!r.ok || !d.url) throw new Error(d.error || "Checkout unavailable");
-      window.location = d.url;
-    } catch (e) {
-      setErr(String(e.message || e));
-      setBusy(null);
-    }
-  }
-
-  async function manage() {
-    setErr(""); setBusy("manage");
-    try {
-      const r = await fetch("/api/portal", {
-        method: "POST", headers: await authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ sessionKey }),
-      });
-      const d = await r.json();
-      if (!r.ok || !d.url) throw new Error(d.error || "Portal unavailable");
-      window.location = d.url;
-    } catch (e) {
-      setErr(String(e.message || e));
-      setBusy(null);
-    }
-  }
-
-  return (
-    <div style={{ display: "grid", gap: 18 }}>
-      {/* hero banner */}
-      <div style={{
-        ...glassCard, textAlign: "center",
-        background: `linear-gradient(135deg, ${C.gold}12, ${C.grad}10)`,
-        border: `1px solid ${C.gold}33`,
-      }}>
-        {isPro ? (
-          <>
-            <div style={{ fontSize: 34, marginBottom: 6 }}>👑</div>
-            <h2 style={{ margin: "0 0 6px", fontSize: 22 }}>You're Pro</h2>
-            <p style={{ color: C.dim, fontSize: 14, margin: "0 0 14px" }}>
-              All premium features are unlocked{tier === "tournament" ? " through the Final" : ""}. Thank you for the support! 🙌
-            </p>
-            <button onClick={manage} disabled={busy} className="nav-btn" style={{
-              padding: "10px 22px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: 14,
-              border: `1px solid ${C.line}`, background: C.panel2, color: C.text, opacity: busy ? 0.6 : 1,
-            }}>
-              {busy === "manage" ? "Opening…" : "Manage subscription"}
-            </button>
-          </>
-        ) : (
-          <>
-            <div style={{ fontSize: 34, marginBottom: 6 }}>💎</div>
-            <h2 style={{ margin: "0 0 6px", fontSize: 22 }}>Unlock the full predictor</h2>
-            <p style={{ color: C.dim, fontSize: 14, margin: 0 }}>
-              AI tactical breakdowns, hero art, advanced stats & the knockout simulator.
-            </p>
-          </>
-        )}
-      </div>
-
-      {err && (
-        <div style={{ background: C.redGlow, border: `1px solid ${C.red}44`, borderRadius: 10, padding: "12px 16px", color: C.red, fontSize: 13 }}>
-          ⚠️ {err}
-        </div>
-      )}
-
-      {/* tier cards */}
-      <div className="groups-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
-        {PRICING_TIERS.map(t => {
-          const current = (t.key === null && !isPro) || (isPro && t.key === tier);
-          return (
-            <div key={t.name} style={{
-              ...glassCard, position: "relative", display: "flex", flexDirection: "column",
-              border: `1px solid ${t.accent}55`,
-              boxShadow: t.badge ? `0 8px 36px ${t.accent}22` : "none",
-            }}>
-              {t.badge && (
-                <span style={{
-                  position: "absolute", top: -10, right: 16, ...pill(t.accent),
-                  fontSize: 10, fontWeight: 900, background: t.accent, color: "#0b0b0b",
-                }}>{t.badge}</span>
-              )}
-              <div style={{ fontWeight: 800, fontSize: 15, color: t.accent }}>{t.name}</div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6, margin: "8px 0 2px" }}>
-                <span style={{ fontSize: 30, fontWeight: 900 }}>{t.price}</span>
-              </div>
-              <div style={{ color: C.dim, fontSize: 12, marginBottom: 14 }}>{t.cadence}</div>
-              <ul style={{ listStyle: "none", padding: 0, margin: "0 0 18px", display: "grid", gap: 8, flex: 1 }}>
-                {t.features.map(f => (
-                  <li key={f} style={{ display: "flex", gap: 8, fontSize: 13, color: C.dimMid, lineHeight: 1.4 }}>
-                    <span style={{ color: t.accent, flexShrink: 0 }}>✓</span>{f}
-                  </li>
-                ))}
-              </ul>
-              {t.key === null ? (
-                <button disabled style={{
-                  padding: "11px 0", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "default",
-                  border: `1px solid ${C.line}`, background: C.panel2, color: C.dim,
-                }}>{current ? "Current plan" : t.cta}</button>
-              ) : (
-                <button onClick={() => checkout(t.key)} disabled={!!busy || isPro} className="nav-btn" style={{
-                  padding: "11px 0", borderRadius: 10, fontWeight: 800, fontSize: 14,
-                  cursor: isPro ? "default" : "pointer",
-                  border: `1px solid ${t.accent}`,
-                  background: `linear-gradient(135deg, ${t.accent}26, ${t.accent}10)`,
-                  color: t.accent, opacity: (busy && busy !== t.key) || isPro ? 0.5 : 1,
-                }}>
-                  {isPro ? "Included" : busy === t.key ? "Redirecting…" : t.cta}
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* account / cross-device access */}
-      <div style={{ ...glassCard, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 20 }}>{user ? "✅" : "🔗"}</span>
-        <div style={{ flex: 1, minWidth: 180 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>
-            {user ? `Signed in as ${user.email}` : "Sign in to keep access across devices"}
-          </div>
-          <div style={{ color: C.dim, fontSize: 12 }}>
-            {user
-              ? "Your plan now follows your account, not just this browser."
-              : "Optional, but without it your plan lives only in this browser's storage."}
-          </div>
-        </div>
-        {!user && (
-          <button onClick={onSignIn} className="nav-btn" style={{
-            padding: "9px 18px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: 13,
-            border: `1px solid ${C.blue}`, background: `${C.blue}1c`, color: C.blue,
-          }}>Sign in / sign up</button>
-        )}
-      </div>
-
-      <div style={{ ...glassCard, color: C.dim, fontSize: 12, textAlign: "center" }}>
-        🔒 Secure payments by <strong style={{ color: C.dimMid }}>Stripe</strong> · cancel anytime · prices in USD.
-        {loading && <span> · checking your plan…</span>}
-      </div>
-    </div>
-  );
-}
 
 /* Email magic-link sign-in modal (Supabase Auth) */
 function AuthModal({ onClose }) {
@@ -1334,8 +1237,8 @@ function AuthModal({ onClose }) {
   );
 }
 
-/* Paywall modal — shown when a free user taps a Pro feature */
-function Paywall({ feature, onClose, onUpgrade }) {
+/* (Paywall removed — Stripe stripped out) */
+function _Paywall_removed({ feature, onClose, onUpgrade }) {
   return (
     <div onClick={onClose} style={{
       position: "fixed", inset: 0, zIndex: 1000, background: "rgba(4,6,11,0.8)",
@@ -1368,9 +1271,123 @@ function Paywall({ feature, onClose, onUpgrade }) {
   );
 }
 
+function AccuracyTab({ fx }) {
+  // Honest out-of-sample check: predict each FINISHED match using PRE-tournament
+  // base ratings (not ratings adjusted by that same result), then compare to reality.
+  const baseRatings = React.useMemo(
+    () => Object.fromEntries(TEAMS.map(t => [t.name, t.rating])), []
+  );
+
+  const finished = fx.filter(f => f.st === "FT" && f.s && byName[f.h] && byName[f.a]);
+
+  const rows = finished.map(f => {
+    const pr = predict(f.h, f.a, baseRatings, false);
+    // model's favoured outcome
+    const modelPick = pr.pW >= pr.pD && pr.pW >= pr.pL ? "H"
+                    : pr.pL >= pr.pW && pr.pL >= pr.pD ? "A" : "D";
+    const actual = f.s[0] > f.s[1] ? "H" : f.s[0] < f.s[1] ? "A" : "D";
+    const correct = modelPick === actual;
+    const exact = `${Math.round(pr.xgH)}-${Math.round(pr.xgA)}` === `${f.s[0]}-${f.s[1]}`;
+    // Brier: 1 - sum (p_i - o_i)^2 across the 3 outcomes (lower error = better)
+    const o = { H: actual === "H" ? 1 : 0, D: actual === "D" ? 1 : 0, A: actual === "A" ? 1 : 0 };
+    const brier = Math.pow(pr.pW - o.H, 2) + Math.pow(pr.pD - o.D, 2) + Math.pow(pr.pL - o.A, 2);
+    const conf = Math.max(pr.pW, pr.pD, pr.pL);
+    return { f, modelPick, actual, correct, exact, brier, conf };
+  });
+
+  const n = rows.length;
+  const hits = rows.filter(r => r.correct).length;
+  const exacts = rows.filter(r => r.exact).length;
+  const hitRate = n ? (hits / n * 100) : 0;
+  const exactRate = n ? (exacts / n * 100) : 0;
+  const avgBrier = n ? rows.reduce((s, r) => s + r.brier, 0) / n : 0;
+  // baseline: always pick home — for context
+  const homeBaseline = n ? rows.filter(r => r.actual === "H").length / n * 100 : 0;
+
+  const Stat = ({ label, value, sub, accent }) => (
+    <div style={{ ...glassCard, padding: 16, textAlign: "center" }}>
+      <div style={{ fontSize: 30, fontWeight: 900, color: accent || C.gold, lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginTop: 4 }}>{label}</div>
+      {sub && <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ display: "grid", gap: 18 }}>
+      <div style={glassCard}>
+        <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>📈 Model Accuracy — live scorecard</h3>
+        <div style={{ color: C.dim, fontSize: 12, lineHeight: 1.6 }}>
+          Every finished match re-predicted using <strong>pre-tournament base ratings only</strong>
+          {" "}(true out-of-sample — the model never sees the result it's being graded on).
+          Updates automatically as more matches finish.
+        </div>
+      </div>
+
+      {n === 0 ? (
+        <div style={{ ...glassCard, textAlign: "center", color: C.dim, padding: "36px 0" }}>
+          No finished matches to grade yet — check back after kickoff.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
+            <Stat label="Result hit rate" value={`${hitRate.toFixed(0)}%`}
+              sub={`${hits} of ${n} matches`} accent={C.green} />
+            <Stat label="Exact scoreline" value={`${exactRate.toFixed(0)}%`}
+              sub={`${exacts} of ${n} matches`} accent={C.gold} />
+            <Stat label="Brier score" value={avgBrier.toFixed(3)}
+              sub="lower is better (0–2)" accent={C.blue} />
+            <Stat label="vs home-pick baseline" value={`${(hitRate - homeBaseline >= 0 ? "+" : "")}${(hitRate - homeBaseline).toFixed(0)}%`}
+              sub={`baseline ${homeBaseline.toFixed(0)}%`} accent={C.grad} />
+          </div>
+
+          <div style={glassCard}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Match-by-match grades</div>
+            <div style={{ display: "grid", gap: 6 }}>
+              {rows.slice().reverse().map((r, i) => (
+                <div key={i} style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
+                  borderRadius: 10, background: C.panel2,
+                  border: `1px solid ${r.correct ? C.green + "44" : C.red + "33"}`,
+                }}>
+                  <span style={{ fontSize: 16 }}>{r.correct ? "✅" : "❌"}</span>
+                  <span style={{ flex: 1, fontSize: 13, color: C.text }}>
+                    {r.f.h} <strong>{r.f.s[0]}–{r.f.s[1]}</strong> {r.f.a}
+                  </span>
+                  {r.exact && <span style={pill(C.gold)}>exact</span>}
+                  <span style={{ fontSize: 11, color: C.dim }}>
+                    model: {r.modelPick === "H" ? r.f.h : r.modelPick === "A" ? r.f.a : "Draw"} ({(r.conf * 100).toFixed(0)}%)
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ ...glassCard, fontSize: 11, color: C.dim, lineHeight: 1.6 }}>
+            <strong style={{ color: C.text }}>Why this matters:</strong> a model that just memorises
+            results looks perfect but means nothing. Grading on pre-match ratings only is the honest
+            test recruiters look for — it shows the engine generalises. Random guessing ≈ 33% result
+            hit rate; a strong football model lands ~50–60%.
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ── main App ─────────────────────────────────────────────────────────── */
 
 export default function App() {
+
+  // ── Theme (dark default, persisted) ──────────────────────────────────────
+  const [theme, setTheme] = useState(() => {
+    if (typeof localStorage !== "undefined") return localStorage.getItem("wc26_theme") || "dark";
+    return "dark";
+  });
+  useEffect(() => {
+    if (theme === "light") document.documentElement.setAttribute("data-theme", "light");
+    else document.documentElement.removeAttribute("data-theme");
+    try { localStorage.setItem("wc26_theme", theme); } catch {}
+  }, [theme]);
 
   const [fx, setFx] = useState(SEED_FX);
   const [loading, setLoading] = useState(true);
@@ -1387,93 +1404,25 @@ export default function App() {
   const [sbStats, setSbStats] = useState({});      // StatsBomb WC2022 team records
   const [liveClocks, setLiveClocks] = useState({}); // ESPN live clocks
 
-  // ── Premium / entitlement state ──────────────────────────────────────
-  const sessionKey = useMemo(() => getSessionKey(), []);
-  const [entitlement, setEntitlement] = useState({ pro: false, tier: null, loading: true });
-  const [paywall, setPaywall] = useState(null); // feature name that triggered the paywall, or null
-  const [user, setUser] = useState(null);        // Supabase auth user, or null
+  const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
-  const isPro = entitlement.pro;
 
-  // Build fetch headers, including the Supabase bearer token when signed in,
-  // so the /api functions can tie actions to the account.
-  async function authHeaders(base = {}) {
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data?.session?.access_token;
-      return token ? { ...base, Authorization: `Bearer ${token}` } : base;
-    } catch {
-      return base;
-    }
-  }
-
-  async function refreshEntitlement() {
-    try {
-      const headers = await authHeaders();
-      const r = await fetch(`/api/entitlement?key=${encodeURIComponent(sessionKey)}`, { headers });
-      const d = await r.json();
-      setEntitlement({ pro: !!d.pro, tier: d.tier || null, loading: false });
-    } catch {
-      setEntitlement({ pro: false, tier: null, loading: false });
-    }
-  }
-
-  // Track auth state; on sign-in, claim any anonymous purchases then refresh.
   useEffect(() => {
     let active = true;
     supabase.auth.getSession?.().then(({ data }) => {
       if (active) setUser(data?.session?.user || null);
     }).catch(() => {});
-    const sub = supabase.auth.onAuthStateChange?.(async (_event, session) => {
+    const sub = supabase.auth.onAuthStateChange?.((_event, session) => {
       setUser(session?.user || null);
-      if (session?.user) {
-        try {
-          await fetch("/api/claim", {
-            method: "POST",
-            headers: await authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify({ sessionKey }),
-          });
-        } catch { /* claim is best-effort */ }
-      }
-      refreshEntitlement();
     });
     return () => { active = false; sub?.data?.subscription?.unsubscribe?.(); };
   }, []);
-
-  useEffect(() => { refreshEntitlement(); }, []);
-
-  // Handle return from Stripe Checkout (?checkout=success): poll until the
-  // webhook lands, then drop the query string.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("tab") === "pricing") setTab("pricing");
-    if (params.get("checkout") === "success") {
-      setTab("pricing");
-      let tries = 0;
-      const poll = setInterval(async () => {
-        tries++;
-        await refreshEntitlement();
-        if (tries >= 6) clearInterval(poll);
-      }, 1500);
-    }
-    if (params.get("checkout")) {
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, []);
-
-  // Gate: returns true if allowed; otherwise opens the paywall and returns false.
-  function requirePro(feature) {
-    if (isPro) return true;
-    setPaywall(feature);
-    return false;
-  }
 
   const ratings = useMemo(() => adjustedRatings(fx), [fx]);
   const probs = useMemo(() => titleProbs(ratings), [ratings]);
   const pred = useMemo(() => predict(home, away, ratings, neutral), [home, away, ratings, neutral]);
 
   async function getAIAnalysis() {
-    if (!requirePro("Tactical Breakdown AI")) return;
     setPunditLoading(true);
     setPunditText("");
     punditKey.current = `${home}|${away}`;
@@ -1748,7 +1697,6 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
   }, []);
 
   async function genHero() {
-    if (!requirePro("Stadium Hero Art generation")) return;
     setHeroLoading(true);
     setHero(null);
     setHeroError("");
@@ -1774,19 +1722,15 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
     { k: "matches", icon: "⚽", label: "Matches" },
     { k: "predict", icon: "🎯", label: "Predictor" },
     { k: "title", icon: "📊", label: "Title Race" },
+    { k: "accuracy", icon: "📈", label: "Accuracy" },
     { k: "groups", icon: "📋", label: "Groups" },
     { k: "bracket", icon: "🏆", label: "Final Path" },
     { k: "reviews", icon: "⭐", label: "Reviews" },
-    { k: "pricing", icon: isPro ? "👑" : "💎", label: isPro ? "Pro" : "Go Pro" },
   ];
 
   return (
-    <div style={{
+    <div className="app-root" style={{
       minHeight: "100vh",
-      background: `radial-gradient(ellipse 1000px 600px at 85% -8%, ${C.grad}1a, transparent),
-                   radial-gradient(ellipse 800px 500px at -5% 0%, ${C.green}10, transparent),
-                   radial-gradient(ellipse 600px 400px at 50% 100%, ${C.blue}0d, transparent),
-                   ${C.bg}`,
       color: C.text,
       fontFamily: "ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
       WebkitFontSmoothing: "antialiased",
@@ -1840,10 +1784,15 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                     ● {liveCount} LIVE
                   </span>
                 )}
+                <button onClick={() => setTheme(t => t === "light" ? "dark" : "light")}
+                  className="nav-btn" aria-label="Toggle light / dark mode"
+                  title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+                  style={{ ...pill(C.gold), cursor: "pointer", background: C.panel2, minWidth: 38 }}>
+                  {theme === "light" ? "🌙" : "☀️"}
+                </button>
                 <span style={pill(C.red)}>🇨🇦</span>
                 <span style={pill(C.green)}>🇲🇽</span>
                 <span style={pill(C.blue)}>🇺🇸</span>
-                {isPro && <span style={pill(C.gold)}>👑 PRO</span>}
                 {user ? (
                   <button onClick={() => supabase.auth.signOut()} className="nav-btn" title={user.email}
                     style={{ ...pill(C.dimMid), cursor: "pointer", background: C.panel2 }}>
@@ -1925,6 +1874,11 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                       <>
                         <div className="section-label" style={{ marginTop: live.length ? 8 : 0 }}>
                           Completed · {done.length} results
+                          {!live.length && (
+                            <span style={{ color: C.dimMid, fontWeight: 400, fontSize: 11, marginLeft: 8 }}>
+                              · no matches live right now
+                            </span>
+                          )}
                         </div>
                         {byDate(done).map(({ date, matches }) => (
                           <React.Fragment key={`ft-${date}`}>
@@ -2375,20 +2329,9 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
           )}
 
           {/* REVIEWS ------------------------------------------------- */}
+          {tab === "accuracy" && <AccuracyTab fx={fx} />}
           {tab === "reviews" && <ReviewsTab />}
 
-          {/* PRICING / PRO ------------------------------------------- */}
-          {tab === "pricing" && (
-            <PricingTab
-              isPro={isPro}
-              tier={entitlement.tier}
-              loading={entitlement.loading}
-              sessionKey={sessionKey}
-              authHeaders={authHeaders}
-              user={user}
-              onSignIn={() => setShowAuth(true)}
-            />
-          )}
 
         </div>
 
@@ -2426,15 +2369,6 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
           );
         })}
       </nav>
-
-      {/* ── PAYWALL MODAL ───────────────────────────────────────────── */}
-      {paywall && (
-        <Paywall
-          feature={paywall}
-          onClose={() => setPaywall(null)}
-          onUpgrade={() => { setPaywall(null); setTab("pricing"); }}
-        />
-      )}
 
       {/* ── AUTH MODAL ──────────────────────────────────────────────── */}
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}

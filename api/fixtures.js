@@ -13,7 +13,7 @@ const SEED = [
   {g:"D",d:"Jun 13",h:"Australia",a:"Türkiye",s:[2,0],st:"FT",v:"BC Place, Vancouver"},
   {g:"E",d:"Jun 14",h:"Germany",a:"Curaçao",s:[7,1],st:"FT",v:"Houston"},
   {g:"F",d:"Jun 14",h:"Netherlands",a:"Japan",s:[2,2],st:"FT",v:"Dallas"},
-  {g:"E",d:"Jun 14",h:"Ivory Coast",a:"Ecuador",s:[0,0],st:"LIVE",v:"Philadelphia"},
+  {g:"E",d:"Jun 14",h:"Ivory Coast",a:"Ecuador",s:[0,0],st:"FT",v:"Philadelphia"},
   {g:"F",d:"Jun 14",h:"Sweden",a:"Tunisia",st:"UP",v:"Toronto"},
   {g:"G",d:"Jun 15",h:"Belgium",a:"Egypt",st:"UP",v:"Los Angeles"},
   {g:"G",d:"Jun 15",h:"Iran",a:"New Zealand",st:"UP",v:"Houston"},

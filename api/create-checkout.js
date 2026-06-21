@@ -2,18 +2,26 @@
 // Creates a Stripe Checkout Session and returns its hosted URL.
 // The browser just does `window.location = url`.
 
-import { stripe, TIERS, userFromReq } from "./_lib/stripe.js";
+import { stripe, TIERS, resolvePrice, userFromReq } from "./_lib/stripe.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") { res.status(405).json({ error: "POST only" }); return; }
-  if (!stripe) { res.status(501).json({ error: "STRIPE_SECRET_KEY not configured" }); return; }
+  // When the secret key isn't configured, fall back to the static Payment Link
+  // (covers all three tiers). Entitlement won't auto-attach — the user will
+  // need to contact support — but it's better than a hard error.
+  if (!stripe) {
+    const fallback = process.env.STRIPE_PAYMENT_LINK;
+    if (fallback) { res.status(200).json({ url: fallback }); return; }
+    res.status(501).json({ error: "STRIPE_SECRET_KEY not configured" });
+    return;
+  }
 
   const { tier, sessionKey } = req.body || {};
   const conf = TIERS[tier];
   if (!conf) { res.status(400).json({ error: "Unknown tier" }); return; }
   if (!sessionKey) { res.status(400).json({ error: "Missing sessionKey" }); return; }
 
-  const price = conf.price();
+  const price = await resolvePrice(tier);
   if (!price) { res.status(501).json({ error: `Price ID for "${tier}" not configured` }); return; }
 
   // If signed in, bind the purchase to the account too (cross-device access).
