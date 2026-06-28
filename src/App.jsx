@@ -113,94 +113,116 @@ const teamImg = team => `https://image.pollinations.ai/prompt/${encodeURICompone
 // t = sort key within day (24h "HH:MM"), d = display date label
 const SEED_FX = [
   // ── MD1 · Jun 11 ──────────────────────────────────────────────────────
-  { g:"A", d:"Jun 11", t:"13:00", h:"Mexico",       a:"South Africa",  s:[2,0], st:"FT", v:"Estadio Azteca, Mexico City" },
-  { g:"A", d:"Jun 11", t:"20:00", h:"South Korea",  a:"Czechia",        s:[2,1], st:"FT", v:"Mercedes-Benz Stadium, Atlanta" },
+  { g:"A", d:"Jun 11", t:"13:00", h:"Mexico",       a:"South Africa",  s:[2,0], st:"FT", v:"Estadio Banorte" },
+  { g:"A", d:"Jun 11", t:"20:00", h:"South Korea",  a:"Czechia",       s:[2,1], st:"FT", v:"Estadio Akron" },
   // ── MD1 · Jun 12 ──────────────────────────────────────────────────────
-  { g:"B", d:"Jun 12", t:"15:00", h:"Canada",       a:"Bosnia",         s:[1,1], st:"FT", v:"BMO Field, Toronto" },
+  { g:"B", d:"Jun 12", t:"15:00", h:"Canada",       a:"Bosnia",        s:[1,1], st:"FT", v:"BMO Field" },
   // ── MD1 · Jun 13 ──────────────────────────────────────────────────────
-  { g:"B", d:"Jun 13", t:"12:00", h:"Qatar",        a:"Switzerland",    s:[1,1], st:"FT", v:"Levi's Stadium, San Francisco" },
-  { g:"D", d:"Jun 13", t:"18:00", h:"USA",          a:"Paraguay",       s:[4,1], st:"FT", v:"SoFi Stadium, Los Angeles" },
-  { g:"C", d:"Jun 13", t:"21:00", h:"Brazil",       a:"Morocco",        s:[1,1], st:"FT", v:"MetLife Stadium, New York/NJ" },
-  { g:"C", d:"Jun 13", t:"21:00", h:"Haiti",        a:"Scotland",       s:[0,1], st:"FT", v:"Gillette Stadium, Boston" },
-  { g:"D", d:"Jun 13", t:"21:00", h:"Australia",    a:"Türkiye",        s:[2,0], st:"FT", v:"BC Place, Vancouver" },
+  { g:"D", d:"Jun 13", t:"18:00", h:"USA",          a:"Paraguay",      s:[4,1], st:"FT", v:"SoFi Stadium" },
+  { g:"B", d:"Jun 13", t:"12:00", h:"Qatar",        a:"Switzerland",   s:[1,1], st:"FT", v:"Levi's Stadium" },
+  { g:"C", d:"Jun 13", t:"18:00", h:"Brazil",       a:"Morocco",       s:[1,1], st:"FT", v:"MetLife Stadium" },
+  { g:"D", d:"Jun 13", t:"21:00", h:"Australia",    a:"Türkiye",       s:[2,0], st:"FT", v:"BC Place Stadium" },
+  { g:"C", d:"Jun 13", t:"21:00", h:"Haiti",        a:"Scotland",      s:[0,1], st:"FT", v:"Gillette Stadium" },
   // ── MD1 · Jun 14 ──────────────────────────────────────────────────────
-  { g:"E", d:"Jun 14", t:"12:00", h:"Germany",      a:"Curaçao",        s:[7,1], st:"FT", v:"NRG Stadium, Houston" },
-  { g:"F", d:"Jun 14", t:"15:00", h:"Netherlands",  a:"Japan",          s:[2,2], st:"FT", v:"AT&T Stadium, Dallas" },
-  { g:"E", d:"Jun 14", t:"19:00", h:"Ivory Coast",  a:"Ecuador",        s:[1,0], st:"FT", v:"Lincoln Financial Field, Philadelphia" },
-  { g:"F", d:"Jun 14", t:"20:00", h:"Sweden",       a:"Tunisia",        s:[5,1], st:"FT", v:"BMO Field, Toronto" },
+  { g:"E", d:"Jun 14", t:"12:00", h:"Germany",      a:"Curaçao",       s:[7,1], st:"FT", v:"Reliant Stadium" },
+  { g:"F", d:"Jun 14", t:"15:00", h:"Netherlands",  a:"Japan",         s:[2,2], st:"FT", v:"AT&T Stadium" },
+  { g:"E", d:"Jun 14", t:"19:00", h:"Ivory Coast",  a:"Ecuador",       s:[1,0], st:"FT", v:"Lincoln Financial Field" },
+  { g:"F", d:"Jun 14", t:"20:00", h:"Sweden",       a:"Tunisia",       s:[5,1], st:"FT", v:"Estadio BBVA" },
   // ── MD1 · Jun 15 ──────────────────────────────────────────────────────
-  { g:"G", d:"Jun 15", t:"12:00", h:"Belgium",      a:"Egypt",          s:[1,1], st:"FT", v:"SoFi Stadium, Los Angeles" },
-  { g:"H", d:"Jun 15", t:"12:00", h:"Spain",        a:"Cape Verde",     s:[0,0], st:"FT", v:"Levi's Stadium, San Francisco" },
-  { g:"G", d:"Jun 15", t:"18:00", h:"Iran",         a:"New Zealand",    s:[2,2], st:"FT", v:"NRG Stadium, Houston" },
-  { g:"H", d:"Jun 15", t:"18:00", h:"Saudi Arabia", a:"Uruguay",        s:[1,1], st:"FT", v:"Arrowhead Stadium, Kansas City" },
+  { g:"G", d:"Jun 15", t:"12:00", h:"Belgium",      a:"Egypt",         s:[1,1], st:"FT", v:"Lumen Field" },
+  { g:"H", d:"Jun 15", t:"12:00", h:"Spain",        a:"Cape Verde",    s:[0,0], st:"FT", v:"Mercedes-Benz Stadium" },
+  { g:"H", d:"Jun 15", t:"18:00", h:"Saudi Arabia", a:"Uruguay",       s:[1,1], st:"FT", v:"Hard Rock Stadium" },
+  { g:"G", d:"Jun 15", t:"18:00", h:"Iran",         a:"New Zealand",   s:[2,2], st:"FT", v:"SoFi Stadium" },
   // ── MD1 · Jun 16 ──────────────────────────────────────────────────────
-  { g:"I", d:"Jun 16", t:"15:00", h:"France",       a:"Senegal",        s:[3,1], st:"FT", v:"Mercedes-Benz Stadium, Atlanta" },
-  { g:"I", d:"Jun 16", t:"18:00", h:"Iraq",         a:"Norway",         s:[1,4], st:"FT", v:"Lumen Field, Seattle" },
-  { g:"J", d:"Jun 16", t:"20:00", h:"Argentina",    a:"Algeria",        s:[3,0], st:"FT", v:"MetLife Stadium, New York/NJ" },
-  { g:"J", d:"Jun 16", t:"21:00", h:"Austria",      a:"Jordan",         st:"UP", v:"AT&T Stadium, Dallas" },
+  { g:"I", d:"Jun 16", t:"15:00", h:"France",       a:"Senegal",       s:[3,1], st:"FT", v:"MetLife Stadium" },
+  { g:"I", d:"Jun 16", t:"18:00", h:"Iraq",         a:"Norway",        s:[1,4], st:"FT", v:"Gillette Stadium" },
+  { g:"J", d:"Jun 16", t:"20:00", h:"Argentina",    a:"Algeria",       s:[3,0], st:"FT", v:"Arrowhead Stadium" },
+  { g:"J", d:"Jun 16", t:"21:00", h:"Austria",      a:"Jordan",        s:[3,1], st:"FT", v:"Levi's Stadium" },
   // ── MD1 · Jun 17 ──────────────────────────────────────────────────────
-  { g:"K", d:"Jun 17", t:"12:00", h:"Portugal",     a:"DR Congo",       st:"UP", v:"Lincoln Financial Field, Philadelphia" },
-  { g:"L", d:"Jun 17", t:"15:00", h:"England",      a:"Croatia",        st:"UP", v:"SoFi Stadium, Los Angeles" },
-  { g:"L", d:"Jun 17", t:"19:00", h:"Ghana",        a:"Panama",         st:"UP", v:"Arrowhead Stadium, Kansas City" },
-  { g:"K", d:"Jun 17", t:"20:00", h:"Uzbekistan",   a:"Colombia",       st:"UP", v:"NRG Stadium, Houston" },
+  { g:"K", d:"Jun 17", t:"12:00", h:"Portugal",     a:"DR Congo",      s:[1,1], st:"FT", v:"Reliant Stadium" },
+  { g:"L", d:"Jun 17", t:"15:00", h:"England",      a:"Croatia",       s:[4,2], st:"FT", v:"AT&T Stadium" },
+  { g:"L", d:"Jun 17", t:"19:00", h:"Ghana",        a:"Panama",        s:[1,0], st:"FT", v:"BMO Field" },
+  { g:"K", d:"Jun 17", t:"20:00", h:"Uzbekistan",   a:"Colombia",      s:[1,3], st:"FT", v:"Estadio Banorte" },
   // ── MD2 · Jun 18 ──────────────────────────────────────────────────────
-  { g:"A", d:"Jun 18", t:"12:00", h:"South Africa", a:"Czechia",        st:"UP", v:"MetLife Stadium, New York/NJ" },
-  { g:"B", d:"Jun 18", t:"12:00", h:"Switzerland",  a:"Bosnia",         st:"UP", v:"BC Place, Vancouver" },
-  { g:"B", d:"Jun 18", t:"15:00", h:"Canada",       a:"Qatar",          st:"UP", v:"Levi's Stadium, San Francisco" },
-  { g:"A", d:"Jun 18", t:"19:00", h:"Mexico",       a:"South Korea",    st:"UP", v:"Estadio Akron, Guadalajara" },
+  { g:"B", d:"Jun 18", t:"12:00", h:"Switzerland",  a:"Bosnia",        s:[4,1], st:"FT", v:"SoFi Stadium" },
+  { g:"A", d:"Jun 18", t:"12:00", h:"Czechia",      a:"South Africa",  s:[1,1], st:"FT", v:"Mercedes-Benz Stadium" },
+  { g:"B", d:"Jun 18", t:"15:00", h:"Canada",       a:"Qatar",         s:[6,0], st:"FT", v:"BC Place Stadium" },
+  { g:"A", d:"Jun 18", t:"19:00", h:"Mexico",       a:"South Korea",   s:[1,0], st:"FT", v:"Estadio Akron" },
   // ── MD2 · Jun 19 ──────────────────────────────────────────────────────
-  { g:"D", d:"Jun 19", t:"12:00", h:"USA",          a:"Australia",      st:"UP", v:"Lumen Field, Seattle" },
-  { g:"C", d:"Jun 19", t:"18:00", h:"Scotland",     a:"Morocco",        st:"UP", v:"AT&T Stadium, Dallas" },
-  { g:"D", d:"Jun 19", t:"20:00", h:"Türkiye",      a:"Paraguay",       st:"UP", v:"SoFi Stadium, Los Angeles" },
-  { g:"C", d:"Jun 19", t:"21:00", h:"Brazil",       a:"Haiti",          st:"UP", v:"SoFi Stadium, Los Angeles" },
+  { g:"D", d:"Jun 19", t:"12:00", h:"USA",          a:"Australia",     s:[2,0], st:"FT", v:"Lumen Field" },
+  { g:"C", d:"Jun 19", t:"18:00", h:"Scotland",     a:"Morocco",       s:[0,1], st:"FT", v:"Gillette Stadium" },
+  { g:"D", d:"Jun 19", t:"20:00", h:"Türkiye",      a:"Paraguay",      s:[0,1], st:"FT", v:"Levi's Stadium" },
+  { g:"C", d:"Jun 19", t:"20:30", h:"Brazil",       a:"Haiti",         s:[3,0], st:"FT", v:"Lincoln Financial Field" },
   // ── MD2 · Jun 20 ──────────────────────────────────────────────────────
-  { g:"F", d:"Jun 20", t:"12:00", h:"Netherlands",  a:"Sweden",         st:"UP", v:"BC Place, Vancouver" },
-  { g:"E", d:"Jun 20", t:"16:00", h:"Germany",      a:"Ivory Coast",    st:"UP", v:"AT&T Stadium, Dallas" },
-  { g:"E", d:"Jun 20", t:"19:00", h:"Ecuador",      a:"Curaçao",        st:"UP", v:"NRG Stadium, Houston" },
-  { g:"F", d:"Jun 20", t:"22:00", h:"Tunisia",      a:"Japan",          st:"UP", v:"BMO Field, Toronto" },
+  { g:"F", d:"Jun 20", t:"12:00", h:"Netherlands",  a:"Sweden",        s:[5,1], st:"FT", v:"Reliant Stadium" },
+  { g:"E", d:"Jun 20", t:"16:00", h:"Germany",      a:"Ivory Coast",   s:[2,1], st:"FT", v:"BMO Field" },
+  { g:"E", d:"Jun 20", t:"19:00", h:"Ecuador",      a:"Curaçao",       s:[0,0], st:"FT", v:"Arrowhead Stadium" },
+  { g:"F", d:"Jun 20", t:"22:00", h:"Tunisia",      a:"Japan",         s:[0,4], st:"FT", v:"Estadio BBVA" },
   // ── MD2 · Jun 21 ──────────────────────────────────────────────────────
-  { g:"G", d:"Jun 21", t:"12:00", h:"Belgium",      a:"Iran",           st:"UP", v:"Levi's Stadium, San Francisco" },
-  { g:"H", d:"Jun 21", t:"12:00", h:"Spain",        a:"Saudi Arabia",   st:"UP", v:"MetLife Stadium, New York/NJ" },
-  { g:"G", d:"Jun 21", t:"18:00", h:"New Zealand",  a:"Egypt",          st:"UP", v:"Mercedes-Benz Stadium, Atlanta" },
-  { g:"H", d:"Jun 21", t:"18:00", h:"Uruguay",      a:"Cape Verde",     st:"UP", v:"Arrowhead Stadium, Kansas City" },
+  { g:"G", d:"Jun 21", t:"12:00", h:"Belgium",      a:"Iran",          s:[0,0], st:"FT", v:"SoFi Stadium" },
+  { g:"H", d:"Jun 21", t:"12:00", h:"Spain",        a:"Saudi Arabia",  s:[4,0], st:"FT", v:"Mercedes-Benz Stadium" },
+  { g:"H", d:"Jun 21", t:"18:00", h:"Uruguay",      a:"Cape Verde",    s:[2,2], st:"FT", v:"Hard Rock Stadium" },
+  { g:"G", d:"Jun 21", t:"18:00", h:"New Zealand",  a:"Egypt",         s:[1,3], st:"FT", v:"BC Place Stadium" },
   // ── MD2 · Jun 22 ──────────────────────────────────────────────────────
-  { g:"J", d:"Jun 22", t:"12:00", h:"Argentina",    a:"Austria",        st:"UP", v:"Lumen Field, Seattle" },
-  { g:"I", d:"Jun 22", t:"17:00", h:"France",       a:"Iraq",           st:"UP", v:"Lincoln Financial Field, Philadelphia" },
-  { g:"I", d:"Jun 22", t:"20:00", h:"Norway",       a:"Senegal",        st:"UP", v:"BC Place, Vancouver" },
-  { g:"J", d:"Jun 22", t:"20:00", h:"Jordan",       a:"Algeria",        st:"UP", v:"Gillette Stadium, Boston" },
+  { g:"J", d:"Jun 22", t:"12:00", h:"Argentina",    a:"Austria",       s:[2,0], st:"FT", v:"AT&T Stadium" },
+  { g:"I", d:"Jun 22", t:"17:00", h:"France",       a:"Iraq",          s:[3,0], st:"FT", v:"Lincoln Financial Field" },
+  { g:"I", d:"Jun 22", t:"20:00", h:"Norway",       a:"Senegal",       s:[3,2], st:"FT", v:"MetLife Stadium" },
+  { g:"J", d:"Jun 22", t:"20:00", h:"Jordan",       a:"Algeria",       s:[1,2], st:"FT", v:"Levi's Stadium" },
   // ── MD2 · Jun 23 ──────────────────────────────────────────────────────
-  { g:"K", d:"Jun 23", t:"12:00", h:"Portugal",     a:"Uzbekistan",     st:"UP", v:"SoFi Stadium, Los Angeles" },
-  { g:"L", d:"Jun 23", t:"16:00", h:"England",      a:"Ghana",          st:"UP", v:"NRG Stadium, Houston" },
-  { g:"L", d:"Jun 23", t:"19:00", h:"Panama",       a:"Croatia",        st:"UP", v:"BMO Field, Toronto" },
-  { g:"K", d:"Jun 23", t:"20:00", h:"Colombia",     a:"DR Congo",       st:"UP", v:"MetLife Stadium, New York/NJ" },
+  { g:"K", d:"Jun 23", t:"12:00", h:"Portugal",     a:"Uzbekistan",    s:[5,0], st:"FT", v:"Reliant Stadium" },
+  { g:"L", d:"Jun 23", t:"16:00", h:"England",      a:"Ghana",         s:[0,0], st:"FT", v:"Gillette Stadium" },
+  { g:"L", d:"Jun 23", t:"19:00", h:"Panama",       a:"Croatia",       s:[0,1], st:"FT", v:"BMO Field" },
+  { g:"K", d:"Jun 23", t:"20:00", h:"Colombia",     a:"DR Congo",      s:[1,0], st:"FT", v:"Estadio Akron" },
   // ── MD3 · Jun 24 ──────────────────────────────────────────────────────
-  { g:"B", d:"Jun 24", t:"12:00", h:"Switzerland",  a:"Canada",         st:"UP", v:"AT&T Stadium, Dallas" },
-  { g:"F", d:"Jun 24", t:"12:00", h:"Tunisia",      a:"Netherlands",    st:"UP", v:"Gillette Stadium, Boston" },
-  { g:"C", d:"Jun 24", t:"18:00", h:"Scotland",     a:"Brazil",         st:"UP", v:"SoFi Stadium, Los Angeles" },
-  { g:"C", d:"Jun 24", t:"18:00", h:"Morocco",      a:"Haiti",          st:"UP", v:"Lumen Field, Seattle" },
-  { g:"A", d:"Jun 24", t:"19:00", h:"Czechia",      a:"Mexico",         st:"UP", v:"Estadio Azteca, Mexico City" },
-  { g:"A", d:"Jun 24", t:"19:00", h:"South Africa", a:"South Korea",    st:"UP", v:"BC Place, Vancouver" },
-  { g:"B", d:"Jun 24", t:"19:00", h:"Bosnia",       a:"Qatar",          st:"UP", v:"Mercedes-Benz Stadium, Atlanta" },
+  { g:"B", d:"Jun 24", t:"12:00", h:"Bosnia",       a:"Qatar",         s:[3,1], st:"FT", v:"Lumen Field" },
+  { g:"B", d:"Jun 24", t:"12:00", h:"Switzerland",  a:"Canada",        s:[2,1], st:"FT", v:"BC Place Stadium" },
+  { g:"C", d:"Jun 24", t:"18:00", h:"Morocco",      a:"Haiti",         s:[4,2], st:"FT", v:"Mercedes-Benz Stadium" },
+  { g:"C", d:"Jun 24", t:"18:00", h:"Scotland",     a:"Brazil",        s:[0,3], st:"FT", v:"Hard Rock Stadium" },
+  { g:"A", d:"Jun 24", t:"19:00", h:"Czechia",      a:"Mexico",        s:[0,3], st:"FT", v:"Estadio Banorte" },
+  { g:"A", d:"Jun 24", t:"19:00", h:"South Africa", a:"South Korea",   s:[1,0], st:"FT", v:"Estadio BBVA" },
   // ── MD3 · Jun 25 ──────────────────────────────────────────────────────
-  { g:"E", d:"Jun 25", t:"16:00", h:"Curaçao",      a:"Ivory Coast",    st:"UP", v:"Lincoln Financial Field, Philadelphia" },
-  { g:"E", d:"Jun 25", t:"16:00", h:"Ecuador",      a:"Germany",        st:"UP", v:"NRG Stadium, Houston" },
-  { g:"F", d:"Jun 25", t:"18:00", h:"Japan",        a:"Sweden",         st:"UP", v:"Arrowhead Stadium, Kansas City" },
-  { g:"D", d:"Jun 25", t:"19:00", h:"Paraguay",     a:"Australia",      st:"UP", v:"MetLife Stadium, New York/NJ" },
-  { g:"D", d:"Jun 25", t:"19:00", h:"Türkiye",      a:"USA",            st:"UP", v:"AT&T Stadium, Dallas" },
+  { g:"E", d:"Jun 25", t:"16:00", h:"Ecuador",      a:"Germany",       s:[2,1], st:"FT", v:"MetLife Stadium" },
+  { g:"E", d:"Jun 25", t:"16:00", h:"Curaçao",      a:"Ivory Coast",   s:[0,2], st:"FT", v:"Lincoln Financial Field" },
+  { g:"F", d:"Jun 25", t:"18:00", h:"Japan",        a:"Sweden",        s:[1,1], st:"FT", v:"AT&T Stadium" },
+  { g:"F", d:"Jun 25", t:"18:00", h:"Tunisia",      a:"Netherlands",   s:[1,3], st:"FT", v:"Arrowhead Stadium" },
+  { g:"D", d:"Jun 25", t:"19:00", h:"Paraguay",     a:"Australia",     s:[0,0], st:"FT", v:"Levi's Stadium" },
+  { g:"D", d:"Jun 25", t:"19:00", h:"Türkiye",      a:"USA",           s:[3,2], st:"FT", v:"SoFi Stadium" },
   // ── MD3 · Jun 26 ──────────────────────────────────────────────────────
-  { g:"I", d:"Jun 26", t:"15:00", h:"Senegal",      a:"Iraq",           st:"UP", v:"Mercedes-Benz Stadium, Atlanta" },
-  { g:"I", d:"Jun 26", t:"15:00", h:"Norway",       a:"France",         st:"UP", v:"SoFi Stadium, Los Angeles" },
-  { g:"H", d:"Jun 26", t:"18:00", h:"Uruguay",      a:"Spain",          st:"UP", v:"Levi's Stadium, San Francisco" },
-  { g:"H", d:"Jun 26", t:"19:00", h:"Cape Verde",   a:"Saudi Arabia",   st:"UP", v:"BC Place, Vancouver" },
-  { g:"G", d:"Jun 26", t:"20:00", h:"Egypt",        a:"Iran",           st:"UP", v:"Lumen Field, Seattle" },
-  { g:"G", d:"Jun 26", t:"20:00", h:"New Zealand",  a:"Belgium",        st:"UP", v:"BMO Field, Toronto" },
+  { g:"I", d:"Jun 26", t:"15:00", h:"Norway",       a:"France",        s:[1,4], st:"FT", v:"Gillette Stadium" },
+  { g:"I", d:"Jun 26", t:"15:00", h:"Senegal",      a:"Iraq",          s:[5,0], st:"FT", v:"BMO Field" },
+  { g:"H", d:"Jun 26", t:"18:00", h:"Uruguay",      a:"Spain",         s:[0,1], st:"FT", v:"Estadio Akron" },
+  { g:"H", d:"Jun 26", t:"19:00", h:"Cape Verde",   a:"Saudi Arabia",  s:[0,0], st:"FT", v:"Reliant Stadium" },
+  { g:"G", d:"Jun 26", t:"20:00", h:"Egypt",        a:"Iran",          s:[1,1], st:"FT", v:"Lumen Field" },
+  { g:"G", d:"Jun 26", t:"20:00", h:"New Zealand",  a:"Belgium",       s:[1,5], st:"FT", v:"BC Place Stadium" },
   // ── MD3 · Jun 27 ──────────────────────────────────────────────────────
-  { g:"L", d:"Jun 27", t:"17:00", h:"Panama",       a:"England",        st:"UP", v:"Lincoln Financial Field, Philadelphia" },
-  { g:"L", d:"Jun 27", t:"17:00", h:"Croatia",      a:"Ghana",          st:"UP", v:"NRG Stadium, Houston" },
-  { g:"K", d:"Jun 27", t:"19:30", h:"DR Congo",     a:"Uzbekistan",     st:"UP", v:"Arrowhead Stadium, Kansas City" },
-  { g:"K", d:"Jun 27", t:"19:30", h:"Colombia",     a:"Portugal",       st:"UP", v:"Gillette Stadium, Boston" },
-  { g:"J", d:"Jun 27", t:"21:00", h:"Algeria",      a:"Austria",        st:"UP", v:"Mercedes-Benz Stadium, Atlanta" },
-  { g:"J", d:"Jun 27", t:"21:00", h:"Jordan",       a:"Argentina",      st:"UP", v:"MetLife Stadium, New York/NJ" },
+  { g:"L", d:"Jun 27", t:"17:00", h:"Panama",       a:"England",       s:[0,2], st:"FT", v:"MetLife Stadium" },
+  { g:"L", d:"Jun 27", t:"17:00", h:"Croatia",      a:"Ghana",         s:[2,1], st:"FT", v:"Lincoln Financial Field" },
+  { g:"K", d:"Jun 27", t:"19:30", h:"DR Congo",     a:"Uzbekistan",    s:[3,1], st:"FT", v:"Mercedes-Benz Stadium" },
+  { g:"K", d:"Jun 27", t:"19:30", h:"Colombia",     a:"Portugal",      s:[0,0], st:"FT", v:"Hard Rock Stadium" },
+  { g:"J", d:"Jun 27", t:"21:00", h:"Algeria",      a:"Austria",       s:[3,3], st:"FT", v:"Arrowhead Stadium" },
+  { g:"J", d:"Jun 27", t:"21:00", h:"Jordan",       a:"Argentina",     s:[1,3], st:"FT", v:"AT&T Stadium" },
+  // ── R32 · Jun 28 ──────────────────────────────────────────────────────
+  { g:"R32", d:"Jun 28", t:"12:00", h:"South Africa", a:"Canada",      st:"UP", v:"SoFi Stadium" },
+  // ── R32 · Jun 29 ──────────────────────────────────────────────────────
+  { g:"R32", d:"Jun 29", t:"12:00", h:"Brazil",       a:"Japan",       st:"UP", v:"Reliant Stadium" },
+  { g:"R32", d:"Jun 29", t:"16:30", h:"Germany",      a:"Paraguay",    st:"UP", v:"Gillette Stadium" },
+  { g:"R32", d:"Jun 29", t:"19:00", h:"Netherlands",  a:"Morocco",     st:"UP", v:"Estadio BBVA" },
+  // ── R32 · Jun 30 ──────────────────────────────────────────────────────
+  { g:"R32", d:"Jun 30", t:"12:00", h:"Ivory Coast",  a:"Norway",      st:"UP", v:"AT&T Stadium" },
+  { g:"R32", d:"Jun 30", t:"17:00", h:"France",       a:"Sweden",      st:"UP", v:"MetLife Stadium" },
+  { g:"R32", d:"Jun 30", t:"19:00", h:"Mexico",       a:"Ecuador",     st:"UP", v:"Estadio Banorte" },
+  // ── R32 · Jul 1 ───────────────────────────────────────────────────────
+  { g:"R32", d:"Jul 1",  t:"12:00", h:"England",      a:"DR Congo",    st:"UP", v:"Mercedes-Benz Stadium" },
+  { g:"R32", d:"Jul 1",  t:"13:00", h:"Belgium",      a:"Senegal",     st:"UP", v:"Lumen Field" },
+  { g:"R32", d:"Jul 1",  t:"17:00", h:"USA",          a:"Bosnia",      st:"UP", v:"Levi's Stadium" },
+  // ── R32 · Jul 2 ───────────────────────────────────────────────────────
+  { g:"R32", d:"Jul 2",  t:"12:00", h:"Spain",        a:"Austria",     st:"UP", v:"SoFi Stadium" },
+  { g:"R32", d:"Jul 2",  t:"19:00", h:"Portugal",     a:"Croatia",     st:"UP", v:"BMO Field" },
+  { g:"R32", d:"Jul 2",  t:"20:00", h:"Switzerland",  a:"Algeria",     st:"UP", v:"BC Place Stadium" },
+  // ── R32 · Jul 3 ───────────────────────────────────────────────────────
+  { g:"R32", d:"Jul 3",  t:"13:00", h:"Australia",    a:"Egypt",       st:"UP", v:"AT&T Stadium" },
+  { g:"R32", d:"Jul 3",  t:"18:00", h:"Argentina",    a:"Cape Verde",  st:"UP", v:"Hard Rock Stadium" },
+  { g:"R32", d:"Jul 3",  t:"20:30", h:"Colombia",     a:"Ghana",       st:"UP", v:"Arrowhead Stadium" },
 ];
 
 const factorial = n => { let r = 1; for (let i = 2; i <= n; i++) r *= i; return r; };
@@ -397,7 +419,7 @@ function ProbGauge({ w, d, l, homeLabel, awayLabel }) {
 }
 
 /* ── Match card (used in Matches tab) ────────────────────────────────── */
-function MatchCard({ f }) {
+function MatchCard({ f, poss }) {
   const isFT = f.st === "FT";
   const isLive = f.st === "LIVE";
   const hCode = byName[f.h]?.code;
@@ -467,7 +489,7 @@ function MatchCard({ f }) {
           color: C.dim, background: C.panel2, border: `1px solid ${C.line}`,
           borderRadius: 6, padding: "2px 8px", whiteSpace: "nowrap", flexShrink: 0,
         }}>
-          {["R16","QF","SF","FINAL","3RD"].includes(f.g) ? f.g : `GRP ${f.g}`}
+          {["R32","R16","QF","SF","FINAL","3RD"].includes(f.g) ? f.g : `GRP ${f.g}`}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           {f.t && f.st === "UP" && <span style={{ color: C.dimMid, fontSize: 12, fontWeight: 600 }}>{f.t}</span>}
@@ -537,6 +559,21 @@ function MatchCard({ f }) {
           </button>
         )}
       </div>
+
+      {/* possession bar (fbref.com) — shown for completed & live matches */}
+      {poss && (isFT || isLive) && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, fontWeight: 700, color: C.dimMid, marginBottom: 3, letterSpacing: 0.5 }}>
+            <span>{poss.home}%</span>
+            <span style={{ color: C.dim, fontWeight: 500 }}>Possession</span>
+            <span>{poss.away}%</span>
+          </div>
+          <div style={{ display: "flex", height: 5, borderRadius: 4, overflow: "hidden", background: C.panel2, border: `1px solid ${C.line}` }}>
+            <div style={{ width: `${poss.home}%`, background: isLive ? C.red : C.blue, transition: "width 0.5s ease" }} />
+            <div style={{ width: `${poss.away}%`, background: isLive ? "#e2374455" : C.grad, transition: "width 0.5s ease" }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1403,6 +1440,7 @@ export default function App() {
   const punditKey = useRef(`${home}|${away}`);
   const [sbStats, setSbStats] = useState({});      // StatsBomb WC2022 team records
   const [liveClocks, setLiveClocks] = useState({}); // ESPN live clocks
+  const [possData, setPossData] = useState({});     // fbref.com possession per match
 
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
@@ -1604,6 +1642,14 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
         });
         setSbStats(stats);
       })
+      .catch(() => {});
+  }, []);
+
+  // ── fbref.com possession data ─────────────────────────────────────────
+  useEffect(() => {
+    fetch("/api/possession")
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => { if (d?.matches) setPossData(d.matches); })
       .catch(() => {});
   }, []);
 
@@ -1865,7 +1911,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                           <span style={{width:8,height:8,borderRadius:"50%",background:C.red,display:"inline-block",animation:"pulse 1.4s ease-in-out infinite"}} />
                           Live Now · {live.length} match{live.length !== 1 ? "es" : ""}
                         </div>
-                        {live.map((f, i) => <MatchCard key={`live-${i}`} f={f} />)}
+                        {live.map((f, i) => <MatchCard key={`live-${i}`} f={f} poss={possData[`${f.h}|${f.a}`]} />)}
                       </>
                     )}
 
@@ -1883,7 +1929,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                         {byDate(done).map(({ date, matches }) => (
                           <React.Fragment key={`ft-${date}`}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: C.dimMid, letterSpacing: 1.2, textTransform: "uppercase", padding: "4px 2px 2px", borderBottom: `1px solid ${C.line}` }}>{date}</div>
-                            {matches.map((f, i) => <MatchCard key={`ft-${date}-${i}`} f={f} />)}
+                            {matches.map((f, i) => <MatchCard key={`ft-${date}-${i}`} f={f} poss={possData[`${f.h}|${f.a}`]} />)}
                           </React.Fragment>
                         ))}
                       </>
@@ -1898,7 +1944,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                         {byDate(upcoming).map(({ date, matches }) => (
                           <React.Fragment key={`up-${date}`}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: C.dimMid, letterSpacing: 1.2, textTransform: "uppercase", padding: "4px 2px 2px", borderBottom: `1px solid ${C.line}` }}>{date}</div>
-                            {matches.map((f, i) => <MatchCard key={`up-${date}-${i}`} f={f} />)}
+                            {matches.map((f, i) => <MatchCard key={`up-${date}-${i}`} f={f} poss={possData[`${f.h}|${f.a}`]} />)}
                           </React.Fragment>
                         ))}
                       </>
