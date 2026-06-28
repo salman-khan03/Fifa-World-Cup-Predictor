@@ -242,6 +242,6 @@ MIT — free to use, modify, and distribute.
 
 ## 👤 Author
 
-**Salman Khan** · [salmanazizkhan02@gmail.com](mailto:salmanazizkhan02@gmail.com)
+**Salman Khan** · [sak03926@gmail.com](mailto:sak03926@gmail.com)
 
 > Built with React, Supabase, Groq, and Pollinations.ai during the FIFA World Cup 2026.
