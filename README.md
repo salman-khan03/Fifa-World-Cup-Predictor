@@ -215,10 +215,8 @@ npm run preview      # serves the dist/ build at http://localhost:4173
 | `FOOTBALL_DATA_API_TOKEN` | [football-data.org/client/register](https://www.football-data.org/client/register) | ✅ Free |
 | `API_FOOTBALL_KEY` | [api-sports.io](https://api-sports.io) | ✅ 100 req/day |
 | `VITE_GROQ_API_KEY` | [console.groq.com](https://console.groq.com) | ✅ Free tier |
-| `VITE_POLLINATIONS_KEY` | [enter.pollinations.ai](https://enter.pollinations.ai) | ✅ Free (works without key too) |
 | `VITE_SUPABASE_URL` + `ANON_KEY` | [supabase.com](https://supabase.com) | ✅ Free tier |
 | `VITE_GEMINI_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | ✅ Free tier |
-| `VITE_HF_TOKEN` | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | ✅ Free |
 
 > **Security note:** `VITE_*` variables are bundled into the client-side JavaScript. This is acceptable for personal or demo projects. For production, proxy sensitive API calls through serverless functions and keep secrets server-side only.
 
