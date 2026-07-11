@@ -1441,6 +1441,7 @@ export default function App() {
   const [sbStats, setSbStats] = useState({});      // StatsBomb WC2022 team records
   const [liveClocks, setLiveClocks] = useState({}); // ESPN live clocks
   const [possData, setPossData] = useState({});     // fbref.com possession per match
+  const [kalshi, setKalshi] = useState({ status: null, winnerOdds: {} }); // Kalshi prediction market
 
   const [user, setUser] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
@@ -1650,6 +1651,14 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
     fetch("/api/possession")
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(d => { if (d?.matches) setPossData(d.matches); })
+      .catch(() => {});
+  }, []);
+
+  // ── Kalshi prediction market (exchange status + WC winner odds) ───────
+  useEffect(() => {
+    fetch("/api/kalshi")
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => setKalshi({ status: d.status || null, winnerOdds: d.winnerOdds || {} }))
       .catch(() => {});
   }, []);
 
@@ -1995,6 +2004,39 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                   <Stat label="Home rating" val={pred.rH.toFixed(1)} col={C.gold} />
                 </div>
               </div>
+
+              {/* Kalshi prediction market */}
+              {(kalshi.winnerOdds[home] != null || kalshi.winnerOdds[away] != null || kalshi.status) && (
+                <div style={glassCard}>
+                  <h3 style={{ margin: "0 0 12px", fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
+                    💹 <span>Kalshi Market <span style={{ color: C.dim, fontWeight: 400, fontSize: 12 }}>(World Cup winner odds)</span></span>
+                    {kalshi.status && (
+                      <span style={{
+                        marginLeft: "auto", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 999,
+                        color: kalshi.status.tradingActive ? C.green : C.dim,
+                        border: `1px solid ${(kalshi.status.tradingActive ? C.green : C.dim)}44`,
+                      }}>
+                        {kalshi.status.tradingActive ? "● Trading open" : "○ Trading closed"}
+                      </span>
+                    )}
+                  </h3>
+                  <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <Stat
+                      label={`Title odds — ${home}`}
+                      val={kalshi.winnerOdds[home] != null ? `${(kalshi.winnerOdds[home] * 100).toFixed(1)}%` : "—"}
+                      col={C.green}
+                    />
+                    <Stat
+                      label={`Title odds — ${away}`}
+                      val={kalshi.winnerOdds[away] != null ? `${(kalshi.winnerOdds[away] * 100).toFixed(1)}%` : "—"}
+                      col={C.red}
+                    />
+                  </div>
+                  <div style={{ marginTop: 10, fontSize: 11, color: C.dim }}>
+                    Implied probability of winning the 2026 World Cup, from live Kalshi contract pricing — not a head-to-head odds for this matchup.
+                  </div>
+                </div>
+              )}
 
               {/* StatsBomb WC2022 historical record */}
               {(sbStats[home] || sbStats[away]) && (

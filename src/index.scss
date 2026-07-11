@@ -1,0 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@300;400;500;600;700;900&display=swap');
+
+:root {
+  --navy:       #0D1B2A;
+  --navy-mid:   #132236;
+  --navy-light: #1a2f47;
+  --gold:       #F5A623;
+  --gold-dim:   rgba(245, 166, 35, 0.15);
+  --gold-glow:  rgba(245, 166, 35, 0.35);
+  --teal:       #52B69A;
+  --teal-dim:   rgba(82, 182, 154, 0.12);
+  --white:      #ffffff;
+  --text:       #e8eaf0;
+  --dim:        #8899aa;
+  --line:       rgba(255,255,255,0.08);
+  --line-hover: rgba(255,255,255,0.15);
+  --card-bg:    rgba(19, 34, 54, 0.85);
+  --sidebar-w:  220px;
+  --topbar-h:   64px;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 62.5%;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 1.4rem;
+  font-weight: 400;
+  line-height: 1.5;
+  background-color: var(--navy);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+select, input, textarea {
+  font-family: inherit;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--navy); }
+::-webkit-scrollbar-thumb { background: var(--navy-light); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+
+/* AnimatedLetters keyframes */
+@keyframes fadeInUp {
+  0%   { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes pulse-gold {
+  0%, 100% { box-shadow: 0 0 0 0 var(--gold-glow); }
+  50%       { box-shadow: 0 0 0 8px transparent; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+/* Skeleton loader */
+.skeleton {
+  background: linear-gradient(90deg, var(--navy-light) 25%, var(--navy-mid) 50%, var(--navy-light) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 6px;
+}

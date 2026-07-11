@@ -1,0 +1,10 @@
+.animated-letters {
+  display: inline-block;
+
+  .letter {
+    display: inline-block;
+    opacity: 0;
+    animation: fadeInUp 0.4s ease forwards;
+    white-space: pre;
+  }
+}

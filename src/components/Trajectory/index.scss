@@ -1,0 +1,200 @@
+.traj-page {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.traj-layout {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 1.6rem;
+  align-items: start;
+
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+// ── Chart card ────────────────────────────────────────────────────────────────
+.traj-chart-card {
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 2rem 1.6rem 1.6rem;
+  position: relative;
+  min-height: 460px;
+}
+
+.traj-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
+  font-size: 1.3rem;
+}
+
+.traj-flag {
+  border-radius: 2px;
+  object-fit: cover;
+}
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+.traj-tooltip {
+  background: var(--navy-mid);
+  border: 1px solid var(--line-hover);
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+  min-width: 200px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+
+  &__match {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--white);
+    margin-bottom: 0.2rem;
+  }
+
+  &__date {
+    font-size: 1.05rem;
+    color: var(--dim);
+    margin-bottom: 0.8rem;
+  }
+
+  &__rows { display: flex; flex-direction: column; gap: 0.4rem; }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 1.1rem;
+  }
+
+  &__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  &__name { flex: 1; color: var(--text); }
+  &__val  { font-weight: 700; color: var(--white); }
+}
+
+// ── Panel ─────────────────────────────────────────────────────────────────────
+.traj-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+
+  &__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  &__title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+  }
+
+  &__count {
+    font-size: 1.1rem;
+    color: var(--gold);
+    font-weight: 600;
+  }
+
+  &__actions {
+    display: flex;
+    gap: 0.6rem;
+  }
+}
+
+.traj-search {
+  width: 100%;
+  background: var(--navy-light);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  color: var(--text);
+  font-size: 1.2rem;
+  outline: none;
+
+  &:focus { border-color: var(--teal); }
+  &::placeholder { color: var(--dim); }
+}
+
+.traj-action-btn {
+  flex: 1;
+  background: var(--navy-light);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--dim);
+  font-size: 1.1rem;
+  padding: 0.5rem 0;
+  font-weight: 600;
+  transition: all 0.15s;
+
+  &:hover {
+    border-color: var(--teal);
+    color: var(--teal);
+  }
+}
+
+.traj-team-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+
+  @media (max-width: 900px) {
+    max-height: 260px;
+  }
+}
+
+.traj-team-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--dim);
+  font-size: 1.15rem;
+  text-align: left;
+  transition: all 0.12s;
+  cursor: pointer;
+
+  &:hover { border-color: var(--line-hover); color: var(--text); }
+
+  &--on { color: var(--white); }
+}
+
+.traj-team-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid;
+  flex-shrink: 0;
+}
+
+.traj-team-name { flex: 1; font-weight: 500; }
+
+.traj-team-delta {
+  font-size: 1.05rem;
+  font-weight: 700;
+
+  &.delta--up   { color: var(--teal); }
+  &.delta--down { color: #ff5050; }
+}

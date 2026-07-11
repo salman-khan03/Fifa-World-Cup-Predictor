@@ -1,0 +1,267 @@
+.predictor-page {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.predictor-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 2.4rem;
+}
+
+.pred-controls {
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 2.4rem;
+}
+
+.pred-team-row {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  margin-bottom: 1.6rem;
+}
+
+.pred-team-select {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+}
+
+.pred-label {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.pred-flag {
+  border-radius: 4px;
+  object-fit: cover;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+.pred-select {
+  width: 100%;
+  padding: 1rem 1.4rem;
+  background: var(--navy-light);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 1.4rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  appearance: none;
+
+  &:focus {
+    outline: none;
+    border-color: var(--gold);
+  }
+
+  option { background: var(--navy-mid); }
+}
+
+.pred-vs {
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  flex-shrink: 0;
+}
+
+.neutral-toggle {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 1.3rem;
+  color: var(--dim);
+  cursor: pointer;
+  user-select: none;
+
+  input[type="checkbox"] {
+    width: 1.6rem;
+    height: 1.6rem;
+    accent-color: var(--gold);
+    cursor: pointer;
+  }
+}
+
+.pred-results {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.6rem;
+}
+
+.pred-card {
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 2rem;
+
+  &__title {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 1.6rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+.prob-bar {
+  margin-bottom: 1.4rem;
+
+  &__info {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+  }
+
+  &__label {
+    font-size: 1.3rem;
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  &__pct {
+    font-size: 1.3rem;
+    font-weight: 700;
+  }
+
+  &__track {
+    height: 8px;
+    background: var(--navy-light);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  &__fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+  }
+}
+
+.pred-xg {
+  display: flex;
+  align-items: center;
+  margin-top: 2rem;
+  padding-top: 1.6rem;
+  border-top: 1px solid var(--line);
+
+  &__item {
+    flex: 1;
+    text-align: center;
+  }
+
+  &__num {
+    display: block;
+    font-size: 2.8rem;
+    font-weight: 900;
+    color: var(--gold);
+  }
+
+  &__label {
+    font-size: 1.1rem;
+    color: var(--dim);
+  }
+
+  &__divider {
+    width: 1px;
+    height: 4rem;
+    background: var(--line);
+  }
+}
+
+.scorelines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.scoreline {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 1.2rem;
+  border-radius: 8px;
+  background: var(--navy-light);
+  overflow: hidden;
+
+  &--top {
+    border: 1px solid var(--gold-dim);
+
+    .scoreline__score { color: var(--gold); }
+  }
+
+  &__rank {
+    font-size: 1.1rem;
+    color: var(--dim);
+    width: 2rem;
+    text-align: center;
+  }
+
+  &__score {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--text);
+    flex: 1;
+  }
+
+  &__pct {
+    font-size: 1.2rem;
+    color: var(--teal);
+    font-weight: 600;
+  }
+
+  &__bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    background: rgba(82,182,154,0.06);
+    pointer-events: none;
+    transition: width 0.4s ease;
+  }
+}
+
+.pred-ratings {
+  grid-column: 1 / -1;
+
+  .pred-card__title { margin-bottom: 1.2rem; }
+}
+
+.rating-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 1.4rem;
+
+  &:last-child { border-bottom: none; }
+}
+
+.rating-val {
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: var(--gold);
+}
+
+@media (max-width: 640px) {
+  .pred-team-row {
+    flex-direction: column;
+  }
+
+  .pred-results {
+    grid-template-columns: 1fr;
+  }
+}
