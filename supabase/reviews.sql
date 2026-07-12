@@ -21,6 +21,13 @@ create table if not exists public.reviews (
 create index if not exists reviews_created_at_idx
   on public.reviews (created_at desc);
 
+-- RLS policies alone don't grant access — Postgres also requires the base
+-- table privilege before a policy is even evaluated. Without this, every
+-- query fails with "permission denied for table reviews" (42501) even
+-- though the policies below look correct.
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.reviews to anon, authenticated;
+
 -- Enable Row Level Security
 alter table public.reviews enable row level security;
 
