@@ -258,4 +258,4 @@ MIT — free to use, modify, and distribute.
 
 **Salman Khan** · [sak03926@gmail.com](mailto:sak03926@gmail.com)
 
-> Built with React, Supabase, Groq, and Pollinations.ai during the FIFA World Cup 2026.
+> Built with React, Supabase, Groq, and during the FIFA World Cup 2026.
