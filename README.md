@@ -13,7 +13,11 @@ The app is organised into seven tabs — **Matches · Predictor · Title Race ·
 | **Prediction Engine** | Rating-driven bivariate Poisson model + live Elo rating updates after every result; per-match Win / Draw / Loss donut gauge |
 | **Live Match Data** | Four-tier live data pipeline: local API → football-data.org → api-football → worldcup26.ir |
 | **Kalshi Market Odds** | Live implied **tournament-winner** probabilities for the two selected teams, pulled from the Kalshi prediction market (`/api/kalshi`, no auth). *Note: these are title-to-win odds, not per-match head-to-head odds* |
+| **Per-Match Kalshi Odds** | Real head-to-head Win/Draw/Win pricing for the exact selected fixture, from Kalshi's `KXWCGAME` per-match markets (`/api/match-odds`) |
+| **Head-to-Head History** | All-time W/D/L record + last 10 meetings between the two selected teams (`/api/h2h`, api-football) |
 | **Predict the Champion** | Free, no-money community pick for who wins it all — stored in Supabase, shown against live Kalshi odds and a community-consensus chart, with a deep-link to trade the real market on kalshi.com |
+| **Live Match Alerts** | Browser notification the moment a match goes LIVE, while the tab is open (no backend/push infra) |
+| **Share Predictions** | Renders the predicted scoreline + W/D/L split to a shareable PNG via canvas |
 | **AI Tactical Breakdown** | Groq (Llama 3.3 70B) streams pundit-style match previews in real time; falls back to Pollinations.ai |
 | **AI Match Commentary** | ElevenLabs text-to-speech reads a "Hear the call" summary line for finished matches (`/api/commentary`) |
 | **Possession Data** | Per-match possession split for completed & live games (`/api/possession`, fbref.com) |
@@ -158,8 +162,20 @@ Finished matches show a **"Hear the call"** button that streams AI text-to-speec
 ### 💹 Kalshi Prediction Market
 The Predictor tab surfaces the live implied **tournament-winner** probability for each selected team from the Kalshi "2026 FIFA World Cup Winner" market. These are *title-to-win* odds — the app deliberately labels them as **not** a head-to-head forecast for the individual matchup. The match-winner prediction itself comes from the built-in Poisson/Elo engine, not Kalshi.
 
+### 🎲 Per-Match Kalshi Odds
+A second, separate Kalshi integration (`/api/match-odds`, `KXWCGAME` series) surfaces the *real* head-to-head moneyline market for the exact selected fixture — genuine Win/Draw/Win pricing for that matchup, not the tournament-winner proxy above. Kalshi opens one event per World Cup game; if a match's market hasn't opened yet (typically shortly before kickoff), the card says so instead of showing stale or fabricated odds. Includes a deep-link to trade the real market on kalshi.com.
+
+### ⚔️ Head-to-Head Historical Record
+`/api/h2h` (api-football) pulls the complete all-time meeting history between the two selected teams — aggregate W/D/L record plus the 10 most recent results with competition and date — shown in the Predictor tab.
+
 ### 🔮 Predict the Champion (community picks + real Kalshi trading)
 A free, no-account "who wins it all" pick sits alongside the Kalshi odds — one pick per browser session, stored in Supabase (`champion_picks` table, run `supabase/champion_picks.sql`). Shows a live community-consensus bar chart and the real Kalshi odds for your pick. A **"Trade real money on Kalshi ↗"** button deep-links to the actual `KXMENWORLDCUP-26` market on kalshi.com — no trading logic lives in this app; placing a real trade requires the user's own Kalshi account.
+
+### 🔔 Live Match Alerts
+A header toggle requests browser notification permission; while granted and the tab is open, the existing 30-second live-score poll fires a native notification the moment a match transitions to LIVE. Client-side only — no push infrastructure, so it won't fire if the tab/browser is closed (a full server-push version would need a Vercel Cron job, VAPID keys, and a subscriptions table; out of scope for now).
+
+### 📤 Share Predicted Scorelines
+"Share prediction" on the scorelines card renders the current matchup's most-likely scoreline, flags, and Win/Draw/Loss split to a canvas and exports a 1200×630 PNG — handed to the native share sheet on mobile (`navigator.share`) or downloaded directly on desktop.
 
 ---
 
@@ -241,10 +257,10 @@ npm run preview      # serves the dist/ build at http://localhost:4173
 
 - [x] Knock-out bracket simulator (Round of 32 → Final) — *Final Path tab*
 - [x] Dark / light theme toggle
-- [ ] **Per-match Kalshi odds** (head-to-head match-winner markets, not just tournament-winner)
-- [ ] Head-to-head historical record overlay
-- [ ] Push notifications for LIVE match alerts
-- [ ] Share predicted scorelines as images
+- [x] Per-match Kalshi odds (real head-to-head moneyline markets, `KXWCGAME` series)
+- [x] Head-to-head historical record overlay (api-football)
+- [x] Live match alerts (browser notifications while the tab is open)
+- [x] Share predicted scorelines as images
 
 ---
 

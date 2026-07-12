@@ -912,6 +912,132 @@ function StarDisplay({ rating, size = 16 }) {
   );
 }
 
+// Loads an image with CORS enabled so it can be drawn onto a canvas and
+// exported without tainting it (flagcdn.com sends Access-Control-Allow-Origin: *).
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// Renders the predicted scoreline as a shareable 1200x630 PNG, then either
+// hands it to the native share sheet (mobile) or triggers a download.
+async function shareScorelineImage({ home, away, pred, hCode, aCode }) {
+  const W = 1200, H = 630;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // background
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#08090b");
+  bg.addColorStop(1, "#12160c");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "#24272f";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, W - 2, H - 2);
+
+  // eyebrow
+  ctx.fillStyle = "#c7f73e";
+  ctx.font = "700 20px 'JetBrains Mono', monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("FIFA WORLD CUP 2026 · PREDICTOR", W / 2, 70);
+
+  // flags + team names
+  try {
+    const [homeImg, awayImg] = await Promise.all([
+      loadImage(`https://flagcdn.com/w160/${FLAG_ISO[hCode] || "un"}.png`),
+      loadImage(`https://flagcdn.com/w160/${FLAG_ISO[aCode] || "un"}.png`),
+    ]);
+    const fw = 130, fh = 87;
+    ctx.save();
+    roundRect(ctx, W / 2 - 340 - fw / 2, 120, fw, fh, 10);
+    ctx.clip();
+    ctx.drawImage(homeImg, W / 2 - 340 - fw / 2, 120, fw, fh);
+    ctx.restore();
+    ctx.save();
+    roundRect(ctx, W / 2 + 340 - fw / 2, 120, fw, fh, 10);
+    ctx.clip();
+    ctx.drawImage(awayImg, W / 2 + 340 - fw / 2, 120, fw, fh);
+    ctx.restore();
+  } catch { /* flags optional — fall through without them */ }
+
+  ctx.fillStyle = "#f2f3f5";
+  ctx.font = "800 34px 'Archivo', sans-serif";
+  ctx.fillText(home, W / 2 - 340, 250);
+  ctx.fillText(away, W / 2 + 340, 250);
+
+  // predicted scoreline
+  ctx.fillStyle = "#c7f73e";
+  ctx.font = "900 130px 'JetBrains Mono', monospace";
+  ctx.fillText(pred.top[0].score.replace("–", " – "), W / 2, 400);
+
+  ctx.fillStyle = "#8a8f99";
+  ctx.font = "600 16px 'JetBrains Mono', monospace";
+  ctx.fillText(`most likely scoreline · ${(pred.top[0].p * 100).toFixed(1)}% probability`, W / 2, 435);
+
+  // W/D/L bar
+  const barY = 480, barW = 700, barX = W / 2 - barW / 2, barH = 14;
+  const segs = [
+    { p: pred.pW, col: "#35d07f" },
+    { p: pred.pD, col: "#f5b23e" },
+    { p: pred.pL, col: "#ff3b47" },
+  ];
+  let sx = barX;
+  roundRect(ctx, barX, barY, barW, barH, 7);
+  ctx.save(); ctx.clip();
+  segs.forEach(s => {
+    const w = s.p * barW;
+    ctx.fillStyle = s.col;
+    ctx.fillRect(sx, barY, w, barH);
+    sx += w;
+  });
+  ctx.restore();
+
+  ctx.font = "700 15px 'JetBrains Mono', monospace";
+  ctx.fillStyle = "#35d07f"; ctx.textAlign = "left";
+  ctx.fillText(`${home} ${(pred.pW * 100).toFixed(0)}%`, barX, barY + 40);
+  ctx.fillStyle = "#f5b23e"; ctx.textAlign = "center";
+  ctx.fillText(`Draw ${(pred.pD * 100).toFixed(0)}%`, W / 2, barY + 40);
+  ctx.fillStyle = "#ff3b47"; ctx.textAlign = "right";
+  ctx.fillText(`${away} ${(pred.pL * 100).toFixed(0)}%`, barX + barW, barY + 40);
+
+  ctx.fillStyle = "#6a6f79";
+  ctx.font = "500 13px 'JetBrains Mono', monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("Bivariate Poisson + Elo model — not betting advice", W / 2, 590);
+
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+  const file = new File([blob], `${home}-vs-${away}-prediction.png`, { type: "image/png" });
+
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: `${home} vs ${away} prediction`, text: "World Cup 2026 Predictor" });
+      return;
+    } catch { /* user cancelled share sheet — fall through to download */ }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = file.name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // Generate or retrieve a persistent session key for this browser
 function getSessionKey() {
   let k = localStorage.getItem("wc26_session_key");
@@ -1541,6 +1667,32 @@ export default function App() {
   const [kalshi, setKalshi] = useState({ status: null, winnerOdds: {} }); // Kalshi prediction market
   const [liveElo, setLiveElo] = useState({ updated: null, ratings: {} });   // eloratings.net live Elo
   const [squads, setSquads] = useState({});                                 // { teamName: { players, error } } — api-football
+  const [matchOdds, setMatchOdds] = useState(null);                         // per-match Kalshi head-to-head odds
+  const [h2h, setH2h] = useState(null);                                     // head-to-head historical record
+  const [sharing, setSharing] = useState(false);                            // share-scoreline-as-image in progress
+  const [liveAlerts, setLiveAlerts] = useState(() => {
+    try { return localStorage.getItem("wc26_live_alerts") === "1" && Notification?.permission === "granted"; }
+    catch { return false; }
+  });
+
+  async function toggleLiveAlerts() {
+    if (liveAlerts) {
+      setLiveAlerts(false);
+      try { localStorage.setItem("wc26_live_alerts", "0"); } catch {}
+      return;
+    }
+    if (typeof Notification === "undefined") return;
+    const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+    if (perm === "granted") {
+      setLiveAlerts(true);
+      try { localStorage.setItem("wc26_live_alerts", "1"); } catch {}
+    }
+  }
+
+  // Live-poll runs once and never re-subscribes (empty dep array below), so
+  // it reads alert state through a ref rather than a stale closure value.
+  const liveAlertsRef = useRef(liveAlerts);
+  useEffect(() => { liveAlertsRef.current = liveAlerts; }, [liveAlerts]);
 
   const eloBase = useMemo(() => rescaleLiveElo(liveElo.ratings), [liveElo.ratings]);
   const ratings = useMemo(() => adjustedRatings(fx, eloBase), [fx, eloBase]);
@@ -1768,6 +1920,22 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
     });
   }, [home, away]);
 
+  // ── Per-match Kalshi odds + head-to-head history for the selected pair ─
+  useEffect(() => {
+    let active = true;
+    setMatchOdds(null);
+    setH2h(null);
+    fetch(`/api/match-odds?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => { if (active) setMatchOdds(d); })
+      .catch(() => { if (active) setMatchOdds({ found: false, odds: null }); });
+    fetch(`/api/h2h?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => { if (active) setH2h(d); })
+      .catch(() => { if (active) setH2h({ record: null, matches: [] }); });
+    return () => { active = false; };
+  }, [home, away]);
+
   // ── Live polling: OneFootball (primary) + ESPN (fallback) every 30s ───
   useEffect(() => {
     const LIVE_PERIODS = new Set([
@@ -1789,6 +1957,15 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
           return fuzzy(m.hn, f.h) && fuzzy(m.an, f.a);
         });
         if (!u || (!u.isLive && !u.isFinal)) return f;
+        // fire a browser notification exactly once, on the non-LIVE -> LIVE transition
+        if (u.isLive && f.st !== "LIVE" && liveAlertsRef.current && typeof Notification !== "undefined" && Notification.permission === "granted") {
+          try {
+            new Notification(`🔴 Kickoff: ${f.h} vs ${f.a}`, {
+              body: "Now LIVE — World Cup Predictor",
+              tag: `live-${f.h}-${f.a}`,
+            });
+          } catch {}
+        }
         return { ...f, s: [u.hs, u.as_], st: u.isFinal ? "FT" : "LIVE", clock: u.clock };
       }));
     };
@@ -1962,6 +2139,12 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                   title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
                   style={{ ...pill(C.gold), cursor: "pointer", background: C.panel2, minWidth: 38 }}>
                   {theme === "light" ? "🌙" : "☀️"}
+                </button>
+                <button onClick={toggleLiveAlerts}
+                  className="nav-btn" aria-label="Toggle live match notifications"
+                  title={liveAlerts ? "Live match alerts on — click to disable" : "Get a browser notification when a match goes live (while this tab is open)"}
+                  style={{ ...pill(liveAlerts ? C.red : C.dim), cursor: "pointer", background: C.panel2 }}>
+                  {liveAlerts ? "🔔 Alerts on" : "🔕 Live alerts"}
                 </button>
               </div>
             </header>
@@ -2142,6 +2325,43 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                 </div>
               )}
 
+              {/* Per-match Kalshi head-to-head odds (real market, not tournament-winner) */}
+              {matchOdds === null ? (
+                <div style={glassCard}>
+                  <div className="skeleton" style={{ height: 60, borderRadius: 10 }} />
+                </div>
+              ) : matchOdds.found && matchOdds.odds && (matchOdds.odds.home != null || matchOdds.odds.away != null) ? (
+                <div style={glassCard}>
+                  <h3 style={{ margin: "0 0 4px", fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
+                    🎲 <span>Match Odds <span style={{ color: C.dim, fontWeight: 400, fontSize: 12 }}>(Kalshi head-to-head market)</span></span>
+                    <span style={{
+                      marginLeft: "auto", ...pill(matchOdds.status === "active" ? C.green : C.dim),
+                    }}>
+                      {matchOdds.status === "active" ? "● Trading open" : "○ Settled"}
+                    </span>
+                  </h3>
+                  <p style={{ margin: "0 0 14px", color: C.dim, fontSize: 12 }}>
+                    Real regulation-time moneyline pricing for this exact fixture — a genuine head-to-head forecast, unlike the tournament-winner odds below.
+                  </p>
+                  <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                    <Stat label={home} val={matchOdds.odds.home != null ? `${(matchOdds.odds.home * 100).toFixed(0)}%` : "—"} col={C.green} />
+                    <Stat label="Draw" val={matchOdds.odds.draw != null ? `${(matchOdds.odds.draw * 100).toFixed(0)}%` : "—"} col={C.grad} />
+                    <Stat label={away} val={matchOdds.odds.away != null ? `${(matchOdds.odds.away * 100).toFixed(0)}%` : "—"} col={C.red} />
+                  </div>
+                  <a href={matchOdds.marketUrl} target="_blank" rel="noopener noreferrer" style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, marginTop: 14,
+                    padding: "8px 14px", borderRadius: 999, fontSize: 12, fontWeight: 700,
+                    border: `1px solid ${mix(C.blue, "44")}`, background: C.blueGlow, color: C.blue, textDecoration: "none",
+                  }}>
+                    💹 Trade this match on Kalshi ↗
+                  </a>
+                </div>
+              ) : (
+                <div style={{ ...glassCard, color: C.dim, fontSize: 12 }}>
+                  🎲 No Kalshi market yet for {home} vs {away} — match-level markets typically open closer to kickoff.
+                </div>
+              )}
+
               {/* Community champion prediction + real Kalshi deep-link */}
               <ChampionPredictor kalshiOdds={kalshi.winnerOdds} />
 
@@ -2176,6 +2396,44 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                       );
                     })}
                   </div>
+                </div>
+              )}
+
+              {/* Head-to-head historical record (api-football) */}
+              {h2h === null ? (
+                <div style={glassCard}>
+                  <div className="skeleton" style={{ height: 60, borderRadius: 10 }} />
+                </div>
+              ) : h2h.record && (h2h.record.home + h2h.record.draw + h2h.record.away > 0) ? (
+                <div style={glassCard}>
+                  <h3 style={{ margin: "0 0 14px", fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
+                    ⚔️ <span>Head-to-Head <span style={{ color: C.dim, fontWeight: 400, fontSize: 12 }}>(all-time record, api-football)</span></span>
+                  </h3>
+                  <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+                    <Stat label={`${home} wins`} val={h2h.record.home} col={C.green} />
+                    <Stat label="Draws" val={h2h.record.draw} col={C.dim} />
+                    <Stat label={`${away} wins`} val={h2h.record.away} col={C.red} />
+                  </div>
+                  {h2h.matches?.length > 0 && (
+                    <div style={{ display: "grid", gap: 6 }}>
+                      {h2h.matches.slice(0, 6).map((m, i) => (
+                        <div key={i} style={{
+                          display: "flex", alignItems: "center", gap: 10, padding: "7px 10px",
+                          borderRadius: 8, background: C.panel, border: `1px solid ${C.line}`, fontSize: 12,
+                        }}>
+                          <span style={{ ...monoFont, color: C.dimMid, fontSize: 10, width: 66, flexShrink: 0 }}>
+                            {new Date(m.date).toLocaleDateString(undefined, { year: "numeric", month: "short" })}
+                          </span>
+                          <span style={{ flex: 1, color: C.text }}>{m.home} <strong style={monoFont}>{m.score}</strong> {m.away}</span>
+                          <span style={{ color: C.dim, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 130 }}>{m.competition}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ ...glassCard, color: C.dim, fontSize: 12 }}>
+                  ⚔️ No prior meetings found between {home} and {away}.
                 </div>
               )}
 
@@ -2219,7 +2477,27 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
 
               {/* scoreline list */}
               <div style={glassCard}>
-                <h3 style={{ margin: "0 0 14px", fontSize: 15 }}>Most likely scorelines</h3>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 14 }}>
+                  <h3 style={{ margin: 0, fontSize: 15 }}>Most likely scorelines</h3>
+                  <button
+                    onClick={async () => {
+                      setSharing(true);
+                      try {
+                        await shareScorelineImage({ home, away, pred, hCode: byName[home]?.code, aCode: byName[away]?.code });
+                      } finally {
+                        setSharing(false);
+                      }
+                    }}
+                    disabled={sharing}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px",
+                      borderRadius: 8, cursor: sharing ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700,
+                      border: `1px solid ${C.gold}`, background: mix(C.gold, "18"), color: C.gold,
+                      opacity: sharing ? 0.6 : 1, minHeight: 32,
+                    }}>
+                    {sharing ? "Generating…" : "📤 Share prediction"}
+                  </button>
+                </div>
                 <div style={{ display: "grid", gap: 10 }}>
                   {pred.top.map((s, i) => (
                     <div key={i} style={{
