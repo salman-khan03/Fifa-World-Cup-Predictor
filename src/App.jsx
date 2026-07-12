@@ -31,6 +31,7 @@ const C = {
   gold:       "var(--c-gold)",
   goldDim:    "var(--c-goldDim)",
   goldGlow:   "var(--c-goldGlow)",
+  onGold:     "var(--c-onGold)", // readable text/icon color for elements painted with C.gold as a background
   red:        "var(--c-red)",
   redGlow:    "var(--c-redGlow)",
   green:      "var(--c-green)",
@@ -39,6 +40,8 @@ const C = {
   blueGlow:   "var(--c-blueGlow)",
   grad:       "var(--c-grad)",
   gradGlow:   "var(--c-gradGlow)",
+  silver:     "var(--c-silver)", // 2nd-place podium accent
+  bronze:     "var(--c-bronze)", // 3rd-place podium accent
 };
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
@@ -228,8 +231,27 @@ const SEED_FX = [
 const factorial = n => { let r = 1; for (let i = 2; i <= n; i++) r *= i; return r; };
 const pois = (k, l) => Math.exp(-l) * Math.pow(l, k) / factorial(k);
 
-function adjustedRatings(fx) {
-  const r = Object.fromEntries(TEAMS.map(t => [t.name, t.rating]));
+// Rescales eloratings.net's live points (roughly 1300-2200) onto the app's
+// hand-tuned 62-91 rating band, so it drops straight into predict()/titleProbs()
+// without touching any downstream scale (radar domain, xG curve, etc).
+function rescaleLiveElo(eloMap) {
+  const vals = TEAMS.map(t => eloMap[t.name]).filter(Number.isFinite);
+  if (vals.length < TEAMS.length * 0.5) return null; // not enough coverage — bail to hand-tuned
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const bandLo = Math.min(...TEAMS.map(t => t.rating));
+  const bandHi = Math.max(...TEAMS.map(t => t.rating));
+  const scaled = {};
+  TEAMS.forEach(t => {
+    const e = eloMap[t.name];
+    scaled[t.name] = Number.isFinite(e)
+      ? bandLo + ((e - lo) / (hi - lo)) * (bandHi - bandLo)
+      : t.rating; // team missing from feed — fall back to hand-tuned rating
+  });
+  return scaled;
+}
+
+function adjustedRatings(fx, baseRatings) {
+  const r = baseRatings ? { ...baseRatings } : Object.fromEntries(TEAMS.map(t => [t.name, t.rating]));
   fx.filter(f => f.st === "FT" && f.s).forEach(f => {
     if (r[f.h] == null || r[f.a] == null) return;
     const exp = 1 / (1 + Math.pow(10, (r[f.a] - r[f.h]) / 40));
@@ -276,19 +298,30 @@ function standings(group, fx, ratings) {
 /* ── design primitives ────────────────────────────────────────────────── */
 
 const glassCard = {
-  background: C.panelGlass,
-  backdropFilter: "blur(16px) saturate(180%)",
-  WebkitBackdropFilter: "blur(16px) saturate(180%)",
+  background: C.panel2,
   border: `1px solid ${C.line}`,
-  borderRadius: 16,
-  padding: 18,
+  borderRadius: 14,
+  padding: 20,
+};
+
+const monoFont = { fontFamily: "'JetBrains Mono', monospace" };
+
+// Blends a C.* token (a CSS custom-property reference like "var(--c-gold)")
+// with transparency. `"var(--c-gold)" + "44"` is NOT valid CSS — a var()
+// reference can't take a raw hex-alpha suffix — so the browser silently
+// drops the whole declaration. color-mix() is the valid equivalent; hexAlpha
+// is a familiar 2-digit hex (e.g. "44" ≈ 27%) for drop-in readability.
+const mix = (colorVar, hexAlpha) => {
+  const pct = Math.round((parseInt(hexAlpha, 16) / 255) * 100);
+  return `color-mix(in srgb, ${colorVar} ${pct}%, transparent)`;
 };
 
 const pill = (bg, text) => ({
   display: "inline-flex", alignItems: "center", gap: 5,
-  padding: "4px 11px", borderRadius: 999, fontSize: 12, fontWeight: 700,
-  background: bg + "22", color: text || bg, border: `1px solid ${bg}44`,
-  letterSpacing: 0.3,
+  padding: "4px 11px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+  fontFamily: "'JetBrains Mono', monospace",
+  background: mix(bg, "22"), color: text || bg, border: `1px solid ${mix(bg, "44")}`,
+  letterSpacing: 0.5,
 });
 
 /* ── small shared components ──────────────────────────────────────────── */
@@ -317,7 +350,7 @@ const Flag = ({ code, size = 24 }) => {
       onError={e => {
         e.target.style.display = "none";
         e.target.insertAdjacentHTML("afterend",
-          `<span style="font-family:monospace;font-size:10px;color:#a0aec0;border:1px solid #1a2438;border-radius:4px;padding:2px 5px;background:#0a0f1a">${code}</span>`
+          `<span style="font-family:monospace;font-size:10px;color:var(--c-dimMid);border:1px solid var(--c-line);border-radius:4px;padding:2px 5px;background:var(--c-panel2)">${code}</span>`
         );
       }}
     />
@@ -335,28 +368,37 @@ function SkeletonRow() {
   );
 }
 
-function Trophy() {
+function Trophy({ src = "https://upload.wikimedia.org/wikipedia/commons/6/65/World_Cup_Trophy.png", alt = "FIFA World Cup Trophy", credit, height = 190, rounded = false }) {
   const [loaded, setLoaded] = React.useState(false);
   const [err, setErr] = React.useState(false);
   return (
-    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "12px 0 4px", minHeight: 190 }}>
-      {!err ? (
-        <img
-          src="https://upload.wikimedia.org/wikipedia/commons/6/65/World_Cup_Trophy.png"
-          alt="FIFA World Cup Trophy"
-          onLoad={() => setLoaded(true)}
-          onError={() => setErr(true)}
-          style={{
-            height: 190, width: "auto", display: loaded ? "block" : "none",
-            filter: `drop-shadow(0 0 28px ${C.gold}cc) drop-shadow(0 0 10px ${C.gold}88)`,
-            objectFit: "contain",
-            animation: loaded ? "fadeUp 0.4s ease both" : "none",
-          }}
-        />
-      ) : null}
-      {/* spinner while loading */}
-      {!loaded && !err && (
-        <div style={{ width: 40, height: 40, borderRadius: "50%", border: `3px solid ${C.gold}44`, borderTopColor: C.gold, animation: "spin3d 0.8s linear infinite" }} />
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "12px 0 4px" }}>
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: height }}>
+        {!err ? (
+          <img
+            src={src}
+            alt={alt}
+            onLoad={() => setLoaded(true)}
+            onError={() => setErr(true)}
+            style={{
+              height, width: "auto", display: loaded ? "block" : "none",
+              filter: rounded
+                ? `drop-shadow(0 4px 20px rgba(0,0,0,0.5))`
+                : `drop-shadow(0 0 28px ${mix(C.gold, "cc")}) drop-shadow(0 0 10px ${mix(C.gold, "88")})`,
+              objectFit: "contain",
+              borderRadius: rounded ? 14 : 0,
+              border: rounded ? `1px solid ${C.line}` : "none",
+              animation: loaded ? "fadeUp 0.4s ease both" : "none",
+            }}
+          />
+        ) : null}
+        {/* spinner while loading */}
+        {!loaded && !err && (
+          <div style={{ width: 40, height: 40, borderRadius: "50%", border: `3px solid ${mix(C.gold, "44")}`, borderTopColor: C.gold, animation: "spin3d 0.8s linear infinite" }} />
+        )}
+      </div>
+      {credit && !err && (
+        <div style={{ ...monoFont, fontSize: 9, color: C.dimMid, marginTop: 6, textAlign: "center" }}>{credit}</div>
       )}
     </div>
   );
@@ -371,7 +413,7 @@ function ProbGauge({ w, d, l, homeLabel, awayLabel }) {
   const gap = 3;
   const segs = [
     { p: w, col: C.green },
-    { p: d, col: C.gold },
+    { p: d, col: C.grad },
     { p: l, col: C.red },
   ];
   let offset = 0;
@@ -395,22 +437,21 @@ function ProbGauge({ w, d, l, homeLabel, awayLabel }) {
             style={{ transform: "rotate(-90deg)", transformOrigin: `${cx}px ${cy}px`, transition: "stroke-dasharray 0.6s ease" }}
           />
         ))}
-        <text x={cx} y={cy - 8} textAnchor="middle" fill={C.gold} fontSize={26} fontWeight={800}>{Math.round(w * 100)}%</text>
-        <text x={cx} y={cy + 14} textAnchor="middle" fill={C.dim} fontSize={11} fontWeight={600}>{homeLabel} win</text>
+        <text x={cx} y={cy - 6} textAnchor="middle" fill={C.gold} fontSize={30} fontWeight={800} style={{ fontFamily: "'JetBrains Mono', monospace" }}>{Math.round(w * 100)}%</text>
+        <text x={cx} y={cy + 16} textAnchor="middle" fill={C.dim} fontSize={11} fontWeight={600} style={{ fontFamily: "'JetBrains Mono', monospace" }}>{homeLabel} win</text>
       </svg>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, width: "100%" }}>
         {[
-          { label: `${homeLabel} Win`, val: `${Math.round(w * 100)}%`, col: C.green, glow: C.greenGlow },
-          { label: "Draw", val: `${Math.round(d * 100)}%`, col: C.gold, glow: C.goldGlow },
-          { label: `${awayLabel} Win`, val: `${Math.round(l * 100)}%`, col: C.red, glow: C.redGlow },
-        ].map(({ label, val, col, glow }) => (
+          { label: `${homeLabel} Win`, val: `${Math.round(w * 100)}%`, col: C.green },
+          { label: "Draw", val: `${Math.round(d * 100)}%`, col: C.grad },
+          { label: `${awayLabel} Win`, val: `${Math.round(l * 100)}%`, col: C.red },
+        ].map(({ label, val, col }) => (
           <div key={label} style={{
-            background: C.panel2, border: `1px solid ${col}44`, borderRadius: 12,
-            padding: "12px 8px", textAlign: "center",
-            boxShadow: `0 4px 18px ${glow}`,
+            background: C.panel, border: `1px solid ${mix(col, "44")}`, borderRadius: 10,
+            padding: "12px 6px", textAlign: "center",
           }}>
-            <div style={{ fontSize: 26, fontWeight: 900, color: col }}>{val}</div>
-            <div style={{ fontSize: 11, color: C.dim, marginTop: 3, fontWeight: 600 }}>{label}</div>
+            <div style={{ ...monoFont, fontSize: 22, fontWeight: 700, color: col }}>{val}</div>
+            <div style={{ fontSize: 10, color: C.dim, marginTop: 3, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
           </div>
         ))}
       </div>
@@ -477,17 +518,19 @@ function MatchCard({ f, poss }) {
     el.style.transform = "";
   }
 
+  const edge = isLive ? C.red : isFT ? C.line : C.blue;
+
   return (
     <div ref={ref} onMouseMove={handleTilt} onMouseLeave={resetTilt}
       className={`match-card tilt${isLive ? " live-card" : ""}`} style={{
-      ...glassCard, padding: "12px 16px",
+      ...glassCard, padding: "14px 16px", borderLeft: `3px solid ${edge}`,
     }}>
       {/* top row: group · date · status */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
         <span style={{
-          fontSize: 11, fontWeight: 700, letterSpacing: 0.6,
-          color: C.dim, background: C.panel2, border: `1px solid ${C.line}`,
-          borderRadius: 6, padding: "2px 8px", whiteSpace: "nowrap", flexShrink: 0,
+          ...monoFont, fontSize: 10, fontWeight: 700, letterSpacing: 1,
+          color: C.dim, background: C.panel, border: `1px solid ${C.line}`,
+          borderRadius: 5, padding: "2px 7px", whiteSpace: "nowrap", flexShrink: 0,
         }}>
           {["R32","R16","QF","SF","FINAL","3RD"].includes(f.g) ? f.g : `GRP ${f.g}`}
         </span>
@@ -515,10 +558,10 @@ function MatchCard({ f, poss }) {
         {/* score badge */}
         <div className="match-score-center" style={{ textAlign: "center" }}>
           <div className="score-badge" style={{
-            fontWeight: 900, fontSize: 20,
+            ...monoFont, fontWeight: 700, fontSize: 19,
             color: isLive ? C.red : isFT ? C.gold : C.dimMid,
             background: isLive ? C.redGlow : isFT ? C.goldGlow : C.panel2,
-            border: `2px solid ${isLive ? C.red + "55" : isFT ? C.gold + "44" : C.line}`,
+            border: `2px solid ${isLive ? mix(C.red, "55") : isFT ? mix(C.gold, "44") : C.line}`,
             borderRadius: 10, padding: "5px 8px", display: "block", textAlign: "center",
             boxShadow: isLive ? `0 0 16px ${C.redGlow}` : isFT ? `0 0 10px ${C.goldGlow}` : "none",
             letterSpacing: 1, whiteSpace: "nowrap",
@@ -551,7 +594,7 @@ function MatchCard({ f, poss }) {
             style={{
               display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 9px",
               borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: "pointer",
-              border: `1px solid ${C.gold}44`, background: C.goldGlow, color: C.gold,
+              border: `1px solid ${mix(C.gold, "44")}`, background: C.goldGlow, color: C.gold,
               opacity: commentaryState === "loading" ? 0.6 : 1,
             }}>
             {commentaryState === "loading" ? "⏳" : commentaryState === "playing" ? "🔊" : commentaryState === "error" ? "⚠️" : "🔈"}
@@ -570,7 +613,7 @@ function MatchCard({ f, poss }) {
           </div>
           <div style={{ display: "flex", height: 5, borderRadius: 4, overflow: "hidden", background: C.panel2, border: `1px solid ${C.line}` }}>
             <div style={{ width: `${poss.home}%`, background: isLive ? C.red : C.blue, transition: "width 0.5s ease" }} />
-            <div style={{ width: `${poss.away}%`, background: isLive ? "#e2374455" : C.grad, transition: "width 0.5s ease" }} />
+            <div style={{ width: `${poss.away}%`, background: isLive ? "#ff3b4755" : C.grad, transition: "width 0.5s ease" }} />
           </div>
         </div>
       )}
@@ -589,48 +632,82 @@ const StatusChip = ({ st, clock }) => {
   return <span style={pill(C.blue)}>Upcoming</span>;
 };
 
+/* Live results ticker — scrolling marquee of finished-match scorelines */
+function Ticker({ fx }) {
+  const done = fx.filter(f => f.st === "FT" && f.s).slice(-14);
+  if (!done.length) return null;
+  const Item = ({ f, i }) => (
+    <span key={i} style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+      <span style={{ color: C.dim }}>{f.h}</span>
+      <span style={{ color: C.gold, fontWeight: 700 }}>{f.s[0]}–{f.s[1]}</span>
+      <span style={{ color: C.dim }}>{f.a}</span>
+      <span style={{ color: C.line }}>//</span>
+    </span>
+  );
+  return (
+    <div className="ticker-wrap" style={{ borderBottom: `1px solid ${C.line}`, background: C.panel, overflow: "hidden", whiteSpace: "nowrap" }}>
+      <div className="ticker-track" style={{ display: "inline-flex", gap: 34, padding: "8px 0", ...monoFont, fontSize: 12, letterSpacing: 0.3 }}>
+        {done.map((f, i) => <Item key={"a" + i} f={f} i={i} />)}
+        {done.map((f, i) => <Item key={"b" + i} f={f} i={i} />)}
+      </div>
+    </div>
+  );
+}
+
 /* ── global injected styles ───────────────────────────────────────────── */
 const GLOBAL_STYLES = `
-  /* ── Dark theme (default) ── */
+  /* ── Dark theme (default) — "data terminal" palette ── */
   :root {
-    --c-bg: #07090f;      --c-panel: #0f1520;    --c-panel2: #0a0f1a;
-    --c-panelGlass: rgba(15,21,32,0.72);
-    --c-line: #1a2438;    --c-lineHover: #2a3a55;
-    --c-text: #e8edf6;    --c-dim: #7a8899;      --c-dimMid: #a0aec0;
-    --c-gold: #f5c451;    --c-goldDim: #9a7d2e;  --c-goldGlow: rgba(245,196,81,0.22);
-    --c-red: #e23744;     --c-redGlow: rgba(226,55,68,0.2);
-    --c-green: #2bb673;   --c-greenGlow: rgba(43,182,115,0.2);
-    --c-blue: #3b82f6;    --c-blueGlow: rgba(59,130,246,0.2);
-    --c-grad: #7c5cff;    --c-gradGlow: rgba(124,92,255,0.2);
+    --c-bg: #08090b;       --c-panel: #101216;    --c-panel2: #16191f;
+    --c-panelGlass: #101216;
+    --c-line: #24272f;     --c-lineHover: #3a3f4a;
+    --c-text: #f2f3f5;     --c-dim: #8a8f99;      --c-dimMid: #6a6f79;
+    --c-gold: #c7f73e;     --c-goldDim: #8fae2c;  --c-goldGlow: rgba(199,247,62,0.14);
+    --c-onGold: #0b0d10;
+    --c-red: #ff3b47;      --c-redGlow: rgba(255,59,71,0.16);
+    --c-green: #35d07f;    --c-greenGlow: rgba(53,208,127,0.16);
+    --c-blue: #4c8dff;     --c-blueGlow: rgba(76,141,255,0.16);
+    --c-grad: #f5b23e;     --c-gradGlow: rgba(245,178,62,0.16);
+    --c-silver: #c0c8d8;   --c-bronze: #cd7f32;
   }
   /* ── Light theme ── */
   [data-theme="light"] {
     --c-bg: #f4f6fb;      --c-panel: #ffffff;    --c-panel2: #eef1f7;
-    --c-panelGlass: rgba(255,255,255,0.78);
+    --c-panelGlass: #ffffff;
     --c-line: #d8dee9;    --c-lineHover: #b9c4d6;
     --c-text: #15202b;    --c-dim: #5a6b7d;      --c-dimMid: #44505e;
-    --c-gold: #b8860b;    --c-goldDim: #8a6608;  --c-goldGlow: rgba(184,134,11,0.16);
+    --c-gold: #5c7616;    --c-goldDim: #3f5310;  --c-goldGlow: rgba(92,118,22,0.13);
+    --c-onGold: #ffffff;
     --c-red: #c92a36;     --c-redGlow: rgba(201,42,54,0.13);
     --c-green: #1a8f57;   --c-greenGlow: rgba(26,143,87,0.13);
     --c-blue: #2563eb;    --c-blueGlow: rgba(37,99,235,0.13);
-    --c-grad: #6741e0;    --c-gradGlow: rgba(103,65,224,0.13);
+    --c-grad: #9a6a08;    --c-gradGlow: rgba(154,106,8,0.13);
+    --c-silver: #64748b;  --c-bronze: #8b5a2b;
   }
   html { transition: none; }
   body, .app-root, .glass, .match-card, .nav-btn { transition: background 0.25s ease, color 0.25s ease, border-color 0.25s ease; }
 
   .app-root {
     background:
-      radial-gradient(ellipse 1000px 600px at 85% -8%, color-mix(in srgb, var(--c-grad) 10%, transparent), transparent),
-      radial-gradient(ellipse 800px 500px at -5% 0%, color-mix(in srgb, var(--c-green) 6%, transparent), transparent),
-      radial-gradient(ellipse 600px 400px at 50% 100%, color-mix(in srgb, var(--c-blue) 5%, transparent), transparent),
+      radial-gradient(ellipse 1200px 500px at 80% -10%, color-mix(in srgb, var(--c-gold) 6%, transparent), transparent),
+      radial-gradient(ellipse 900px 500px at 0% 0%, color-mix(in srgb, var(--c-blue) 5%, transparent), transparent),
       var(--c-bg);
   }
 
   *, *::before, *::after { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; overscroll-behavior: none; }
-  body { background: ${C.bg}; }
-  ::-webkit-scrollbar { width: 4px; background: ${C.panel2}; }
-  ::-webkit-scrollbar-thumb { background: ${C.line}; border-radius: 4px; }
+  body { background: ${C.bg}; font-family: 'Archivo', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: ${C.gold}; }
+  ::selection { background: ${C.gold}; color: ${C.onGold}; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; background: ${C.panel2}; }
+  ::-webkit-scrollbar-thumb { background: ${C.line}; border-radius: 8px; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  h3 { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.18em; text-transform: uppercase; color: ${C.dim}; font-weight: 700; }
+  label { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.06em; }
+
+  @keyframes wcpMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .ticker-track { animation: wcpMarquee 45s linear infinite; }
+  .ticker-wrap:hover .ticker-track { animation-play-state: paused; }
 
   @keyframes spin3d { from { transform: rotateY(0) } to { transform: rotateY(360deg) } }
   @keyframes shimmer-glow { 0%,100% { filter: brightness(1) } 50% { filter: brightness(1.4) } }
@@ -660,20 +737,17 @@ const GLOBAL_STYLES = `
 
   .match-card:hover { border-color: ${C.lineHover} !important; transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important; }
   .match-card { transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s; cursor: default; }
-  .match-card.live-card { border-color: ${C.red}66 !important; box-shadow: 0 0 24px ${C.redGlow}, 0 4px 16px rgba(0,0,0,0.3) !important; animation: livePulse 2.5s ease-in-out infinite; }
+  .match-card.live-card { border-color: ${mix(C.red, "66")} !important; box-shadow: 0 0 24px ${C.redGlow}, 0 4px 16px rgba(0,0,0,0.3) !important; animation: livePulse 2.5s ease-in-out infinite; }
   @keyframes livePulse { 0%,100% { box-shadow: 0 0 18px ${C.redGlow}, 0 4px 16px rgba(0,0,0,0.3); } 50% { box-shadow: 0 0 36px rgba(226,55,68,0.35), 0 4px 16px rgba(0,0,0,0.3); } }
   .section-label { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: ${C.dim}; padding: 4px 2px 8px; display: flex; align-items: center; gap: 8px; }
   .section-label::after { content: ""; flex: 1; height: 1px; background: ${C.line}; }
 
   .nav-btn { transition: background 0.18s, color 0.18s, border-color 0.18s, box-shadow 0.18s; }
-  .nav-btn:hover { border-color: ${C.gold}88 !important; }
+  .nav-btn:hover { border-color: ${mix(C.gold, "88")} !important; }
   .nav-btn:active { transform: scale(0.97); }
 
   .sel-opt:hover { background: ${C.lineHover} !important; }
 
-  .auth-input:focus { outline: none; border-color: ${C.gold}88 !important; box-shadow: 0 0 0 3px ${C.goldGlow}; }
-  .auth-btn:hover { opacity: 0.88; }
-  .auth-btn:active { transform: scale(0.98); }
 
   .star-btn { background: none; border: none; cursor: pointer; padding: 2px 3px; transition: transform 0.12s; line-height: 1; }
   .star-btn:hover { transform: scale(1.18); }
@@ -719,6 +793,10 @@ const GLOBAL_STYLES = `
     filter: blur(90px); opacity: 0.5; mix-blend-mode: screen;
     will-change: transform;
   }
+  /* "screen" blend brightens against a dark canvas but muddies to a dull
+     tan/khaki smear against a light one — swap to a much fainter "multiply"
+     pass in light mode so the aurora stays a subtle tint instead of a stain. */
+  [data-theme="light"] .aurora-blob { opacity: 0.10; mix-blend-mode: multiply; }
   .aurora-1 { width: 46vw; height: 46vw; left: -8vw; top: -10vw;
     background: radial-gradient(circle, ${C.grad}, transparent 70%);
     animation: auroraDrift1 26s ease-in-out infinite; }
@@ -814,7 +892,7 @@ function StarPicker({ value, onChange }) {
           aria-label={`${s} star${s > 1 ? "s" : ""}`}
           style={{ fontSize: 28 }}
         >
-          <span style={{ color: s <= (hover || value) ? C.gold : C.line, filter: s <= (hover || value) ? `drop-shadow(0 0 6px ${C.gold}88)` : "none", transition: "color 0.12s, filter 0.12s" }}>
+          <span style={{ color: s <= (hover || value) ? C.gold : C.line, filter: s <= (hover || value) ? `drop-shadow(0 0 6px ${mix(C.gold, "88")})` : "none", transition: "color 0.12s, filter 0.12s" }}>
             ★
           </span>
         </button>
@@ -839,6 +917,131 @@ function getSessionKey() {
   let k = localStorage.getItem("wc26_session_key");
   if (!k) { k = crypto.randomUUID(); localStorage.setItem("wc26_session_key", k); }
   return k;
+}
+
+const KALSHI_MARKET_URL = "https://kalshi.com/markets/kxmenworldcup/mens-world-cup-winner/kxmenworldcup-26";
+
+/* Free community "who wins it all" prediction — no money, no account.
+   Stored in Supabase (one pick per browser session), shown alongside the
+   real Kalshi market odds. Deep-links out to Kalshi for anyone who wants
+   to back their pick with an actual trade. */
+function ChampionPredictor({ kalshiOdds }) {
+  const sessionKey = React.useMemo(() => getSessionKey(), []);
+  const [picks, setPicks] = useState([]);
+  const [myPick, setMyPick] = useState("");
+  const [selected, setSelected] = useState("Spain");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadPicks() {
+    const { data, error: err } = await supabase
+      .from("champion_picks")
+      .select("session_key, team_name")
+      .order("updated_at", { ascending: false })
+      .limit(2000);
+    if (!err) setPicks(data || []);
+  }
+
+  useEffect(() => {
+    loadPicks();
+    const channel = supabase
+      .channel("champion-picks-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "champion_picks" }, () => loadPicks())
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, []);
+
+  useEffect(() => {
+    const mine = picks.find(p => p.session_key === sessionKey);
+    if (mine) { setMyPick(mine.team_name); setSelected(mine.team_name); }
+  }, [picks, sessionKey]);
+
+  async function lockIn() {
+    setSaving(true);
+    setError("");
+    const { error: err } = await supabase.from("champion_picks").upsert(
+      { session_key: sessionKey, team_name: selected, updated_at: new Date().toISOString() },
+      { onConflict: "session_key" }
+    );
+    setSaving(false);
+    if (err) { setError("Could not save — " + err.message); return; }
+    setMyPick(selected);
+    loadPicks();
+  }
+
+  const total = picks.length;
+  const counts = {};
+  picks.forEach(p => { counts[p.team_name] = (counts[p.team_name] || 0) + 1; });
+  const consensus = Object.entries(counts)
+    .map(([name, n]) => ({ name, n, pct: total ? n / total * 100 : 0 }))
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 6);
+  const maxN = consensus[0]?.n || 1;
+
+  return (
+    <div style={glassCard}>
+      <h3 style={{ margin: "0 0 4px", fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
+        🔮 <span>Predict the Champion <span style={{ color: C.dim, fontWeight: 400, fontSize: 12 }}>(free community pick)</span></span>
+      </h3>
+      <p style={{ margin: "0 0 14px", color: C.dim, fontSize: 12 }}>
+        No money, no account — just your gut call on who lifts the trophy. {total > 0 && `${total} pick${total !== 1 ? "s" : ""} so far.`}
+      </p>
+
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 200px" }}>
+          <Sel label="Your champion" value={selected} onChange={setSelected} />
+        </div>
+        <button onClick={lockIn} disabled={saving} className="nav-btn" style={{
+          padding: "11px 18px", borderRadius: 10, cursor: saving ? "not-allowed" : "pointer",
+          fontWeight: 700, fontSize: 13, border: `1px solid ${C.gold}`,
+          background: C.gold, color: C.onGold, opacity: saving ? 0.6 : 1, minHeight: 44,
+        }}>
+          {saving ? "Saving…" : myPick === selected && myPick ? "Update pick" : "Lock in pick"}
+        </button>
+      </div>
+      {error && <div style={{ color: C.red, fontSize: 12, marginTop: 8 }}>⚠️ {error}</div>}
+      {myPick && (
+        <div style={{ marginTop: 10, fontSize: 12, color: C.dim }}>
+          Your pick: <strong style={{ color: C.gold }}>{myPick}</strong>
+          {kalshiOdds[myPick] != null && (
+            <> · live Kalshi odds: <strong style={{ color: C.text }}>{(kalshiOdds[myPick] * 100).toFixed(1)}%</strong></>
+          )}
+        </div>
+      )}
+
+      {consensus.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ ...monoFont, fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", color: C.dim, marginBottom: 10 }}>
+            Community consensus
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {consensus.map(c => (
+              <div key={c.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <Flag code={byName[c.name]?.code} size={20} />
+                <span style={{ width: 100, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                <div style={{ flex: 1, height: 8, background: C.panel, borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ width: `${(c.n / maxN) * 100}%`, height: "100%", background: C.gold, borderRadius: 4, transition: "width 0.4s ease" }} />
+                </div>
+                <span style={{ ...monoFont, fontSize: 11, color: C.dim, width: 40, textAlign: "right" }}>{c.pct.toFixed(0)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <a href={KALSHI_MARKET_URL} target="_blank" rel="noopener noreferrer" style={{
+        display: "inline-flex", alignItems: "center", gap: 6, marginTop: 16,
+        padding: "9px 14px", borderRadius: 999, fontSize: 12, fontWeight: 700,
+        border: `1px solid ${mix(C.blue, "44")}`, background: C.blueGlow, color: C.blue, textDecoration: "none",
+      }}>
+        💹 Trade real money on Kalshi ↗
+      </a>
+      <div style={{ marginTop: 8, fontSize: 10, color: C.dimMid, lineHeight: 1.5 }}>
+        The pick above is just for fun, stored anonymously. To trade actual World Cup winner contracts you'll need
+        your own Kalshi account — the link opens their real market in a new tab.
+      </div>
+    </div>
+  );
 }
 
 function ReviewsTab() {
@@ -952,7 +1155,7 @@ function ReviewsTab() {
           ✍️ Leave a Review
         </h3>
         {!isSupabaseConfigured && (
-          <div style={{ background: C.redGlow, border: `1px solid ${C.red}44`, borderRadius: 8, padding: "10px 14px", color: C.red, fontSize: 13, marginBottom: 14 }}>
+          <div style={{ background: C.redGlow, border: `1px solid ${mix(C.red, "44")}`, borderRadius: 8, padding: "10px 14px", color: C.red, fontSize: 13, marginBottom: 14 }}>
             ⚠️ Reviews database isn't connected on this deployment. Add <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> in your hosting env vars, then run <code>supabase/reviews.sql</code>.
           </div>
         )}
@@ -983,14 +1186,14 @@ function ReviewsTab() {
                 rows={4} style={{ ...inputStyle, resize: "vertical" }} />
             </div>
             {formError && (
-              <div style={{ background: C.redGlow, border: `1px solid ${C.red}44`, borderRadius: 8, padding: "10px 14px", color: C.red, fontSize: 13 }}>
+              <div style={{ background: C.redGlow, border: `1px solid ${mix(C.red, "44")}`, borderRadius: 8, padding: "10px 14px", color: C.red, fontSize: 13 }}>
                 {formError}
               </div>
             )}
             <button type="submit" style={{
               padding: "12px 0", borderRadius: 10, cursor: "pointer",
               fontWeight: 800, fontSize: 14, border: `1px solid ${C.gold}`,
-              background: `linear-gradient(135deg, ${C.gold}22, ${C.grad}14)`, color: C.gold,
+              background: `linear-gradient(135deg, ${mix(C.gold, "22")}, ${mix(C.grad, "14")})`, color: C.gold,
             }}>
               Submit Review
             </button>
@@ -1028,7 +1231,7 @@ function ReviewsTab() {
               return (
                 <div key={rv.id || idx} style={{
                   background: C.panel2,
-                  border: `1px solid ${own ? C.gold + "55" : C.line}`,
+                  border: `1px solid ${own ? mix(C.gold, "55") : C.line}`,
                   borderRadius: 12, padding: "14px 16px",
                   position: "relative",
                 }}>
@@ -1036,8 +1239,8 @@ function ReviewsTab() {
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                     <div style={{
                       width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
-                      background: `linear-gradient(135deg, ${own ? C.gold : C.grad}44, ${own ? C.gold : C.blue}33)`,
-                      border: `1px solid ${own ? C.gold : C.line}44`,
+                      background: `linear-gradient(135deg, ${mix(own ? C.gold : C.grad, "44")}, ${mix(own ? C.gold : C.blue, "33")})`,
+                      border: `1px solid ${mix(own ? C.gold : C.line, "44")}`,
                       display: "flex", alignItems: "center", justifyContent: "center",
                       fontWeight: 900, fontSize: 14, color: own ? C.gold : C.dimMid,
                     }}>
@@ -1046,7 +1249,7 @@ function ReviewsTab() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
                         {getDisplayName(rv)}
-                        {own && <span style={{ fontSize: 10, color: C.gold, fontWeight: 700, background: C.gold + "22", border: `1px solid ${C.gold}44`, borderRadius: 4, padding: "1px 6px", letterSpacing: 0.5 }}>YOU</span>}
+                        {own && <span style={{ fontSize: 10, color: C.gold, fontWeight: 700, background: mix(C.gold, "22"), border: `1px solid ${mix(C.gold, "44")}`, borderRadius: 4, padding: "1px 6px", letterSpacing: 0.5 }}>YOU</span>}
                       </div>
                       <div style={{ color: C.dim, fontSize: 11 }}>{getDisplayDate(rv)}</div>
                     </div>
@@ -1054,11 +1257,11 @@ function ReviewsTab() {
                     {own && !isEditing && deleteConfirm !== rv.id && (
                       <div style={{ display: "flex", gap: 6, marginLeft: 6 }}>
                         <button onClick={() => { setEditId(rv.id); setEditRating(rv.rating); setEditText(rv.content || ""); setEditError(""); }}
-                          style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${C.blue}55`, background: C.blue + "18", color: C.blue, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                          style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${mix(C.blue, "55")}`, background: mix(C.blue, "18"), color: C.blue, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                           Edit
                         </button>
                         <button onClick={() => setDeleteConfirm(rv.id)}
-                          style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${C.red}55`, background: C.red + "18", color: C.red, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                          style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${mix(C.red, "55")}`, background: mix(C.red, "18"), color: C.red, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                           Delete
                         </button>
                       </div>
@@ -1067,7 +1270,7 @@ function ReviewsTab() {
 
                   {/* delete confirm */}
                   {deleteConfirm === rv.id && (
-                    <div style={{ background: C.redGlow, border: `1px solid ${C.red}44`, borderRadius: 8, padding: "10px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ background: C.redGlow, border: `1px solid ${mix(C.red, "44")}`, borderRadius: 8, padding: "10px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <span style={{ color: C.red, fontSize: 13, flex: 1 }}>Delete this review?</span>
                       <button onClick={() => handleDelete(rv)} style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${C.red}`, background: C.red, color: "#fff", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>Yes, delete</button>
                       <button onClick={() => setDeleteConfirm(null)} style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${C.line}`, background: C.panel2, color: C.dimMid, fontSize: 12, cursor: "pointer" }}>Cancel</button>
@@ -1082,12 +1285,12 @@ function ReviewsTab() {
                         rows={3} style={{ ...inputStyle, resize: "vertical" }} />
                       {editError && <div style={{ color: C.red, fontSize: 12 }}>{editError}</div>}
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => handleEditSave(rv)} style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: `1px solid ${C.gold}`, background: C.gold + "22", color: C.gold, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Save</button>
+                        <button onClick={() => handleEditSave(rv)} style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: `1px solid ${C.gold}`, background: mix(C.gold, "22"), color: C.gold, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Save</button>
                         <button onClick={() => setEditId(null)} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${C.line}`, background: C.panel2, color: C.dimMid, fontSize: 13, cursor: "pointer" }}>Cancel</button>
                       </div>
                     </div>
                   ) : (
-                    <div style={{ color: C.text, fontSize: 14, lineHeight: 1.65, borderLeft: `2px solid ${own ? C.gold + "55" : C.line}`, paddingLeft: 12 }}>
+                    <div style={{ color: C.text, fontSize: 14, lineHeight: 1.65, borderLeft: `2px solid ${own ? mix(C.gold, "55") : C.line}`, paddingLeft: 12 }}>
                       {getDisplayText(rv)}
                     </div>
                   )}
@@ -1099,7 +1302,7 @@ function ReviewsTab() {
       </div>
 
       {/* ── Google Reviews sample ─────────────────────────────────────── */}
-      <div style={{ ...glassCard, border: `1px solid ${C.gold}33` }}>
+      <div style={{ ...glassCard, border: `1px solid ${mix(C.gold, "33")}` }}>
         <h3 style={{ margin: "0 0 6px", fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 20 }}>G</span> Google Reviews
         </h3>
@@ -1108,7 +1311,7 @@ function ReviewsTab() {
           {GOOGLE_REVIEW_SAMPLES.map((rv, i) => (
             <div key={i} style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "14px 16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                <div style={{ width: 34, height: 34, borderRadius: "50%", background: `linear-gradient(135deg, ${C.blue}44, ${C.grad}33)`, border: `1px solid ${C.blue}44`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 14, color: C.blue, flexShrink: 0 }}>
+                <div style={{ width: 34, height: 34, borderRadius: "50%", background: `linear-gradient(135deg, ${mix(C.blue, "44")}, ${mix(C.grad, "33")})`, border: `1px solid ${mix(C.blue, "44")}`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 14, color: C.blue, flexShrink: 0 }}>
                   {rv.name[0]}
                 </div>
                 <div style={{ flex: 1 }}>
@@ -1117,12 +1320,12 @@ function ReviewsTab() {
                 </div>
                 <StarDisplay rating={rv.rating} size={15} />
               </div>
-              <div style={{ color: C.text, fontSize: 14, lineHeight: 1.65, borderLeft: `2px solid ${C.blue}44`, paddingLeft: 12 }}>{rv.text}</div>
+              <div style={{ color: C.text, fontSize: 14, lineHeight: 1.65, borderLeft: `2px solid ${mix(C.blue, "44")}`, paddingLeft: 12 }}>{rv.text}</div>
             </div>
           ))}
         </div>
         <button onClick={() => setShowAll(true)} className="nav-btn"
-          style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 22px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: 14, border: `1px solid ${C.gold}`, background: `${C.gold}1c`, color: C.gold }}>
+          style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 22px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: 14, border: `1px solid ${C.gold}`, background: `${mix(C.gold, "1c")}`, color: C.gold }}>
           ⭐ See all reviews ({totalCount})
         </button>
       </div>
@@ -1162,14 +1365,14 @@ function ReviewsTab() {
               {allReviews.map(rv => (
                 <div key={rv.key} style={{
                   background: C.panel2,
-                  border: `1px solid ${rv.own ? C.gold + "55" : C.line}`,
+                  border: `1px solid ${rv.own ? mix(C.gold, "55") : C.line}`,
                   borderRadius: 12, padding: "14px 16px",
                 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                     <div style={{
                       width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
-                      background: `linear-gradient(135deg, ${rv.source === "Google" ? C.blue : C.grad}44, ${C.blue}33)`,
-                      border: `1px solid ${C.line}44`, display: "flex", alignItems: "center", justifyContent: "center",
+                      background: `linear-gradient(135deg, ${mix(rv.source === "Google" ? C.blue : C.grad, "44")}, ${mix(C.blue, "33")})`,
+                      border: `1px solid ${mix(C.line, "44")}`, display: "flex", alignItems: "center", justifyContent: "center",
                       fontWeight: 900, fontSize: 14, color: rv.source === "Google" ? C.blue : C.dimMid,
                     }}>
                       {rv.name[0]?.toUpperCase() || "?"}
@@ -1177,13 +1380,13 @@ function ReviewsTab() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                         {rv.name}
-                        {rv.own && <span style={{ fontSize: 10, color: C.gold, fontWeight: 700, background: C.gold + "22", border: `1px solid ${C.gold}44`, borderRadius: 4, padding: "1px 6px", letterSpacing: 0.5 }}>YOU</span>}
+                        {rv.own && <span style={{ fontSize: 10, color: C.gold, fontWeight: 700, background: mix(C.gold, "22"), border: `1px solid ${mix(C.gold, "44")}`, borderRadius: 4, padding: "1px 6px", letterSpacing: 0.5 }}>YOU</span>}
                       </div>
                       <div style={{ color: C.dim, fontSize: 11 }}>{rv.date}{rv.date ? " · " : ""}{rv.source}</div>
                     </div>
                     <StarDisplay rating={rv.rating} size={15} />
                   </div>
-                  <div style={{ color: C.text, fontSize: 14, lineHeight: 1.65, borderLeft: `2px solid ${rv.own ? C.gold + "55" : C.line}`, paddingLeft: 12 }}>
+                  <div style={{ color: C.text, fontSize: 14, lineHeight: 1.65, borderLeft: `2px solid ${rv.own ? mix(C.gold, "55") : C.line}`, paddingLeft: 12 }}>
                     {rv.text}
                   </div>
                 </div>
@@ -1201,112 +1404,6 @@ function ReviewsTab() {
   );
 }
 
-/* ── Pricing / Premium ────────────────────────────────────────────────── */
-
-
-/* Email magic-link sign-in modal (Supabase Auth) */
-function AuthModal({ onClose }) {
-  const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-
-  async function send(e) {
-    e.preventDefault();
-    setErr(""); setBusy(true);
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: { emailRedirectTo: window.location.origin + "/?tab=pricing" },
-      });
-      if (error) throw error;
-      setSent(true);
-    } catch (e2) {
-      setErr(String(e2.message || e2));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div onClick={onClose} style={{
-      position: "fixed", inset: 0, zIndex: 1100, background: "rgba(4,6,11,0.82)",
-      backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
-      display: "flex", justifyContent: "center", alignItems: "center", padding: 16,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        ...glassCard, maxWidth: 400, width: "100%", background: C.panel,
-        animation: "fadeUp 0.25s ease both", border: `1px solid ${C.blue}44`,
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <h3 style={{ margin: 0, fontSize: 18 }}>Sign in</h3>
-          <button onClick={onClose} aria-label="Close" style={{
-            width: 32, height: 32, borderRadius: 8, cursor: "pointer", border: `1px solid ${C.line}`,
-            background: C.panel2, color: C.dimMid, fontSize: 16,
-          }}>✕</button>
-        </div>
-        {sent ? (
-          <div style={{ textAlign: "center", padding: "16px 0" }}>
-            <div style={{ fontSize: 34, marginBottom: 8 }}>📬</div>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Check your email</div>
-            <div style={{ color: C.dim, fontSize: 13, lineHeight: 1.5 }}>
-              We sent a magic sign-in link to <strong style={{ color: C.text }}>{email}</strong>. Open it on any device to sign in.
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={send} style={{ display: "grid", gap: 12 }}>
-            <p style={{ color: C.dim, fontSize: 13, margin: 0, lineHeight: 1.5 }}>
-              We'll email you a one-tap magic link — no password. Your subscription will follow your account across devices.
-            </p>
-            <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="you@email.com" className="auth-input" autoFocus
-              style={{ width: "100%", padding: "11px 13px", borderRadius: 10, background: C.panel2, color: C.text, border: `1px solid ${C.line}`, fontSize: 14, boxSizing: "border-box" }} />
-            {err && <div style={{ color: C.red, fontSize: 12 }}>⚠️ {err}</div>}
-            <button type="submit" disabled={busy} className="auth-btn" style={{
-              padding: "12px 0", borderRadius: 10, cursor: "pointer", fontWeight: 800, fontSize: 14,
-              border: `1px solid ${C.blue}`, background: `linear-gradient(135deg, ${C.blue}26, ${C.grad}12)`, color: C.blue,
-              opacity: busy ? 0.6 : 1,
-            }}>{busy ? "Sending…" : "Email me a magic link"}</button>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* (Paywall removed — Stripe stripped out) */
-function _Paywall_removed({ feature, onClose, onUpgrade }) {
-  return (
-    <div onClick={onClose} style={{
-      position: "fixed", inset: 0, zIndex: 1000, background: "rgba(4,6,11,0.8)",
-      backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
-      display: "flex", justifyContent: "center", alignItems: "center", padding: 16,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        ...glassCard, maxWidth: 420, width: "100%", textAlign: "center",
-        background: C.panel, animation: "fadeUp 0.25s ease both",
-        border: `1px solid ${C.gold}44`, boxShadow: `0 0 40px ${C.goldGlow}`,
-      }}>
-        <div style={{ fontSize: 40, marginBottom: 8 }}>💎</div>
-        <h3 style={{ margin: "0 0 8px", fontSize: 20 }}>{feature} is a Pro feature</h3>
-        <p style={{ color: C.dim, fontSize: 14, margin: "0 0 20px", lineHeight: 1.5 }}>
-          Upgrade to unlock AI breakdowns, hero art, advanced stats and the knockout simulator —
-          from <strong style={{ color: C.text }}>$4.99/mo</strong> or a <strong style={{ color: C.gold }}>$9.99 Tournament Pass</strong>.
-        </p>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={onUpgrade} className="nav-btn" style={{
-            flex: 1, padding: "12px 0", borderRadius: 10, cursor: "pointer", fontWeight: 800, fontSize: 14,
-            border: `1px solid ${C.gold}`, background: `linear-gradient(135deg, ${C.gold}26, ${C.grad}12)`, color: C.gold,
-          }}>See plans</button>
-          <button onClick={onClose} style={{
-            padding: "12px 18px", borderRadius: 10, cursor: "pointer", fontSize: 14,
-            border: `1px solid ${C.line}`, background: C.panel2, color: C.dimMid,
-          }}>Maybe later</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function AccuracyTab({ fx }) {
   // Honest out-of-sample check: predict each FINISHED match using PRE-tournament
@@ -1342,9 +1439,9 @@ function AccuracyTab({ fx }) {
   const homeBaseline = n ? rows.filter(r => r.actual === "H").length / n * 100 : 0;
 
   const Stat = ({ label, value, sub, accent }) => (
-    <div style={{ ...glassCard, padding: 16, textAlign: "center" }}>
-      <div style={{ fontSize: 30, fontWeight: 900, color: accent || C.gold, lineHeight: 1.1 }}>{value}</div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginTop: 4 }}>{label}</div>
+    <div style={{ ...glassCard, padding: 18, textAlign: "center" }}>
+      <div style={{ ...monoFont, fontSize: 32, fontWeight: 700, color: accent || C.gold, lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginTop: 6 }}>{label}</div>
       {sub && <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{sub}</div>}
     </div>
   );
@@ -1378,13 +1475,13 @@ function AccuracyTab({ fx }) {
           </div>
 
           <div style={glassCard}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Match-by-match grades</div>
+            <div style={{ ...monoFont, fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", color: C.dim, marginBottom: 14 }}>Match-by-match grades</div>
             <div style={{ display: "grid", gap: 6 }}>
               {rows.slice().reverse().map((r, i) => (
                 <div key={i} style={{
                   display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
                   borderRadius: 10, background: C.panel2,
-                  border: `1px solid ${r.correct ? C.green + "44" : C.red + "33"}`,
+                  border: `1px solid ${r.correct ? mix(C.green, "44") : mix(C.red, "33")}`,
                 }}>
                   <span style={{ fontSize: 16 }}>{r.correct ? "✅" : "❌"}</span>
                   <span style={{ flex: 1, fontSize: 13, color: C.text }}>
@@ -1442,22 +1539,11 @@ export default function App() {
   const [liveClocks, setLiveClocks] = useState({}); // ESPN live clocks
   const [possData, setPossData] = useState({});     // fbref.com possession per match
   const [kalshi, setKalshi] = useState({ status: null, winnerOdds: {} }); // Kalshi prediction market
+  const [liveElo, setLiveElo] = useState({ updated: null, ratings: {} });   // eloratings.net live Elo
+  const [squads, setSquads] = useState({});                                 // { teamName: { players, error } } — api-football
 
-  const [user, setUser] = useState(null);
-  const [showAuth, setShowAuth] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    supabase.auth.getSession?.().then(({ data }) => {
-      if (active) setUser(data?.session?.user || null);
-    }).catch(() => {});
-    const sub = supabase.auth.onAuthStateChange?.((_event, session) => {
-      setUser(session?.user || null);
-    });
-    return () => { active = false; sub?.data?.subscription?.unsubscribe?.(); };
-  }, []);
-
-  const ratings = useMemo(() => adjustedRatings(fx), [fx]);
+  const eloBase = useMemo(() => rescaleLiveElo(liveElo.ratings), [liveElo.ratings]);
+  const ratings = useMemo(() => adjustedRatings(fx, eloBase), [fx, eloBase]);
   const probs = useMemo(() => titleProbs(ratings), [ratings]);
   const pred = useMemo(() => predict(home, away, ratings, neutral), [home, away, ratings, neutral]);
 
@@ -1662,6 +1748,26 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
       .catch(() => {});
   }, []);
 
+  // ── eloratings.net live Elo (replaces hand-tuned base ratings) ────────
+  useEffect(() => {
+    fetch("/api/elo")
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => setLiveElo({ updated: d.updated || null, ratings: d.ratings || {} }))
+      .catch(() => {});
+  }, []);
+
+  // ── Squads for the two selected Predictor teams (api-football) ────────
+  useEffect(() => {
+    [home, away].forEach(name => {
+      if (squads[name] !== undefined) return; // already fetched or in flight
+      setSquads(s => ({ ...s, [name]: null })); // mark in-flight
+      fetch(`/api/squad?team=${encodeURIComponent(name)}`)
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(d => setSquads(s => ({ ...s, [name]: { players: d.players || [], error: d.error || null } })))
+        .catch(() => setSquads(s => ({ ...s, [name]: { players: [], error: "fetch failed" } })));
+    });
+  }, [home, away]);
+
   // ── Live polling: OneFootball (primary) + ESPN (fallback) every 30s ───
   useEffect(() => {
     const LIVE_PERIODS = new Set([
@@ -1810,6 +1916,10 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
         WebkitMaskImage: "radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%)",
       }} />
 
+      <div style={{ position: "relative", zIndex: 1 }}>
+        <Ticker fx={fx} />
+      </div>
+
       <div style={{ maxWidth: 1100, margin: "0 auto", position: "relative", zIndex: 1 }} className="main-pad">
 
         {/* ── HEADER ────────────────────────────────────────────────── */}
@@ -1817,67 +1927,61 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
           const liveCount = fx.filter(f => f.st === "LIVE").length;
           return (
             <header style={{
-              display: "flex", alignItems: "center", gap: 14, marginBottom: 20,
-              background: "linear-gradient(270deg, #7c5cff18, #2bb67318, #3b82f618, #f5c45118)",
-              backgroundSize: "400% 400%",
-              animation: "headerGrad 12s ease infinite",
-              border: `1px solid ${C.line}`, borderRadius: 18, padding: "14px 18px",
-              backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+              display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 20,
+              flexWrap: "wrap", paddingBottom: 22, borderBottom: `1px solid ${C.line}`, marginBottom: 22,
             }}>
-              <div style={{ fontSize: 32, flexShrink: 0 }}>🏆</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <h1 className="header-title" style={{ margin: 0, fontSize: 24, fontWeight: 900, letterSpacing: -0.5 }}>
-                  World Cup <span style={{ color: C.gold }}>Predictor</span>
-                </h1>
-                <div className="header-subtitle" style={{ color: C.dim, fontSize: 12, marginTop: 2 }}>
-                  FIFA World Cup 2026 · USA · Canada · Mexico — live results &amp; Poisson engine
+              <div style={{ display: "flex", alignItems: "center", gap: 16, minWidth: 0 }}>
+                <div style={{
+                  width: 52, height: 52, flexShrink: 0, borderRadius: 13, background: C.gold,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: `0 0 30px ${C.goldGlow}`,
+                }}>
+                  <span style={{ fontWeight: 900, fontSize: 26, color: C.onGold }}>W</span>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div className="header-eyebrow" style={{ ...monoFont, fontSize: 11, letterSpacing: "0.32em", color: C.gold, textTransform: "uppercase" }}>
+                    FIFA World Cup 2026 · USA·CAN·MEX
+                  </div>
+                  <h1 className="header-title" style={{ margin: "2px 0 0", fontSize: 34, fontWeight: 900, letterSpacing: -0.7, lineHeight: 1, textTransform: "uppercase" }}>
+                    Predictor<span style={{ color: C.gold }}>.</span>
+                  </h1>
                 </div>
               </div>
-              <div className="header-pills" style={{ display: "flex", gap: 6, flexWrap: "wrap", flexShrink: 0, alignItems: "center" }}>
+              <div className="header-pills" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", flexShrink: 0 }}>
                 {liveCount > 0 && (
                   <span style={{ ...pill(C.red), animation: "pulse 1.4s ease-in-out infinite" }}>
                     ● {liveCount} LIVE
                   </span>
                 )}
+                <div className="header-subtitle" style={{ textAlign: "right", ...monoFont }}>
+                  <div style={{ fontSize: 11, color: C.dim, letterSpacing: "0.12em", textTransform: "uppercase" }}>Model</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>Bivariate Poisson + Elo</div>
+                </div>
                 <button onClick={() => setTheme(t => t === "light" ? "dark" : "light")}
                   className="nav-btn" aria-label="Toggle light / dark mode"
                   title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
                   style={{ ...pill(C.gold), cursor: "pointer", background: C.panel2, minWidth: 38 }}>
                   {theme === "light" ? "🌙" : "☀️"}
                 </button>
-                <span style={pill(C.red)}>🇨🇦</span>
-                <span style={pill(C.green)}>🇲🇽</span>
-                <span style={pill(C.blue)}>🇺🇸</span>
-                {user ? (
-                  <button onClick={() => supabase.auth.signOut()} className="nav-btn" title={user.email}
-                    style={{ ...pill(C.dimMid), cursor: "pointer", background: C.panel2 }}>
-                    {user.email?.[0]?.toUpperCase() || "U"} · Sign out
-                  </button>
-                ) : (
-                  <button onClick={() => setShowAuth(true)} className="nav-btn"
-                    style={{ ...pill(C.blue), cursor: "pointer" }}>
-                    Sign in
-                  </button>
-                )}
               </div>
             </header>
           );
         })()}
 
         {/* ── DESKTOP TOP NAV ─────────────────────────────────────── */}
-        <nav className="top-nav" style={{ gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
-          {TABS.map(({ k, icon, label }) => (
+        <nav className="top-nav" style={{ gap: 6, marginBottom: 26, flexWrap: "wrap" }}>
+          {TABS.map(({ k, icon, label }, i) => (
             <button key={k} className="nav-btn" onClick={() => setTab(k)} style={{
-              padding: "10px 18px", borderRadius: 12, cursor: "pointer",
-              fontWeight: 700, fontSize: 14, border: `1px solid ${tab === k ? C.gold : C.line}`,
-              background: tab === k
-                ? `linear-gradient(135deg, ${C.gold}22, ${C.grad}18)`
-                : C.panel,
-              color: tab === k ? C.gold : C.dim,
-              boxShadow: tab === k ? `0 0 16px ${C.goldGlow}` : "none",
-              minHeight: 44, minWidth: 44,
+              display: "inline-flex", alignItems: "center", gap: 8,
+              padding: "10px 16px", borderRadius: 10, cursor: "pointer",
+              fontWeight: 700, fontSize: 14, letterSpacing: "0.01em",
+              border: `1px solid ${tab === k ? C.gold : C.line}`,
+              background: tab === k ? C.gold : C.panel2,
+              color: tab === k ? C.onGold : C.dim,
+              minHeight: 44,
             }}>
-              {icon} {label}
+              <span style={{ ...monoFont, fontSize: 10, opacity: 0.6 }}>{String(i + 1).padStart(2, "0")}</span>
+              <span>{label}</span>
             </button>
           ))}
         </nav>
@@ -1924,10 +2028,25 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                       </>
                     )}
 
-                    {/* 2 — COMPLETED — newest date first */}
-                    {done.length > 0 && (
+                    {/* 2 — UPCOMING — chronological, nearest first */}
+                    {upcoming.length > 0 && (
                       <>
                         <div className="section-label" style={{ marginTop: live.length ? 8 : 0 }}>
+                          Upcoming · {upcoming.length} matches
+                        </div>
+                        {byDate(upcoming).map(({ date, matches }) => (
+                          <React.Fragment key={`up-${date}`}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: C.dimMid, letterSpacing: 1.2, textTransform: "uppercase", padding: "4px 2px 2px", borderBottom: `1px solid ${C.line}` }}>{date}</div>
+                            {matches.map((f, i) => <MatchCard key={`up-${date}-${i}`} f={f} poss={possData[`${f.h}|${f.a}`]} />)}
+                          </React.Fragment>
+                        ))}
+                      </>
+                    )}
+
+                    {/* 3 — COMPLETED — newest date first, shown last */}
+                    {done.length > 0 && (
+                      <>
+                        <div className="section-label" style={{ marginTop: upcoming.length || live.length ? 8 : 0 }}>
                           Completed · {done.length} results
                           {!live.length && (
                             <span style={{ color: C.dimMid, fontWeight: 400, fontSize: 11, marginLeft: 8 }}>
@@ -1939,21 +2058,6 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                           <React.Fragment key={`ft-${date}`}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: C.dimMid, letterSpacing: 1.2, textTransform: "uppercase", padding: "4px 2px 2px", borderBottom: `1px solid ${C.line}` }}>{date}</div>
                             {matches.map((f, i) => <MatchCard key={`ft-${date}-${i}`} f={f} poss={possData[`${f.h}|${f.a}`]} />)}
-                          </React.Fragment>
-                        ))}
-                      </>
-                    )}
-
-                    {/* 3 — UPCOMING — chronological, nearest first */}
-                    {upcoming.length > 0 && (
-                      <>
-                        <div className="section-label" style={{ marginTop: done.length || live.length ? 8 : 0 }}>
-                          Upcoming · {upcoming.length} matches
-                        </div>
-                        {byDate(upcoming).map(({ date, matches }) => (
-                          <React.Fragment key={`up-${date}`}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: C.dimMid, letterSpacing: 1.2, textTransform: "uppercase", padding: "4px 2px 2px", borderBottom: `1px solid ${C.line}` }}>{date}</div>
-                            {matches.map((f, i) => <MatchCard key={`up-${date}-${i}`} f={f} poss={possData[`${f.h}|${f.a}`]} />)}
                           </React.Fragment>
                         ))}
                       </>
@@ -1974,8 +2078,8 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
               <div style={glassCard}>
                 {/* team art banners */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-                  <img src={teamImg(home)} alt={home} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10, border: `1px solid ${C.green}44` }} onError={e => { e.target.style.display = "none"; }} />
-                  <img src={teamImg(away)} alt={away} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10, border: `1px solid ${C.red}44` }} onError={e => { e.target.style.display = "none"; }} />
+                  <img src={teamImg(home)} alt={home} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10, border: `1px solid ${mix(C.green, "44")}` }} onError={e => { e.target.style.display = "none"; }} />
+                  <img src={teamImg(away)} alt={away} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10, border: `1px solid ${mix(C.red, "44")}` }} onError={e => { e.target.style.display = "none"; }} />
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 14, alignItems: "end" }}>
                   <Sel label="Home / Team A" value={home} onChange={setHome} />
@@ -2014,7 +2118,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                       <span style={{
                         marginLeft: "auto", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 999,
                         color: kalshi.status.tradingActive ? C.green : C.dim,
-                        border: `1px solid ${(kalshi.status.tradingActive ? C.green : C.dim)}44`,
+                        border: `1px solid ${mix((kalshi.status.tradingActive ? C.green : C.dim), "44")}`,
                       }}>
                         {kalshi.status.tradingActive ? "● Trading open" : "○ Trading closed"}
                       </span>
@@ -2038,6 +2142,9 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                 </div>
               )}
 
+              {/* Community champion prediction + real Kalshi deep-link */}
+              <ChampionPredictor kalshiOdds={kalshi.winnerOdds} />
+
               {/* StatsBomb WC2022 historical record */}
               {(sbStats[home] || sbStats[away]) && (
                 <div style={glassCard}>
@@ -2054,7 +2161,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                         </div>
                       );
                       return (
-                        <div key={name} style={{ background: C.panel2, borderRadius: 10, padding: "12px 14px", border: `1px solid ${col}33` }}>
+                        <div key={name} style={{ background: C.panel2, borderRadius: 10, padding: "12px 14px", border: `1px solid ${mix(col, "33")}` }}>
                           <div style={{ color: col, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{name}</div>
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, fontSize: 12 }}>
                             <span style={{ color: C.dim }}>Played</span><span style={{ fontWeight: 700 }}>{s.p}</span>
@@ -2072,6 +2179,44 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                 </div>
               )}
 
+              {/* Squads (api-football) */}
+              <div style={glassCard}>
+                <h3 style={{ margin: "0 0 14px", fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
+                  👥 <span>Squads <span style={{ color: C.dim, fontWeight: 400, fontSize: 12 }}>(api-football)</span></span>
+                </h3>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  {[{ name: home, col: C.green }, { name: away, col: C.red }].map(({ name, col }) => {
+                    const sq = squads[name];
+                    return (
+                      <div key={name} style={{ background: C.panel2, borderRadius: 10, padding: "12px 14px", border: `1px solid ${mix(col, "33")}` }}>
+                        <div style={{ color: col, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{name}</div>
+                        {!sq && (
+                          <div style={{ display: "grid", gap: 6 }}>
+                            {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 12, borderRadius: 6 }} />)}
+                          </div>
+                        )}
+                        {sq && sq.error && !sq.players.length && (
+                          <div style={{ color: C.dim, fontSize: 12 }}>Squad data unavailable.</div>
+                        )}
+                        {sq && sq.players.length > 0 && (
+                          <div style={{ display: "grid", gap: 5, maxHeight: 240, overflowY: "auto" }}>
+                            {sq.players.map(p => (
+                              <div key={p.name + p.number} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                                <span style={{ color: C.text }}>
+                                  <span style={{ color: C.dimMid, fontWeight: 700, marginRight: 6 }}>{p.number ?? "–"}</span>
+                                  {p.name}
+                                </span>
+                                <span style={{ color: C.dim }}>{p.position}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* scoreline list */}
               <div style={glassCard}>
                 <h3 style={{ margin: "0 0 14px", fontSize: 15 }}>Most likely scorelines</h3>
@@ -2081,7 +2226,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                       display: "flex", alignItems: "center", gap: 12,
                       background: i === 0 ? C.goldGlow : "transparent",
                       borderRadius: 10, padding: i === 0 ? "8px 10px" : "4px 2px",
-                      border: i === 0 ? `1px solid ${C.gold}33` : "1px solid transparent",
+                      border: i === 0 ? `1px solid ${mix(C.gold, "33")}` : "1px solid transparent",
                     }}>
                       <div style={{
                         width: 60, fontWeight: 900, fontSize: 18,
@@ -2118,7 +2263,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                   <button onClick={getAIAnalysis} disabled={punditLoading} style={{
                     padding: "10px 20px", borderRadius: 10, cursor: punditLoading ? "not-allowed" : "pointer",
                     fontWeight: 700, fontSize: 13, border: `1px solid ${C.grad}`,
-                    background: `linear-gradient(135deg,${C.grad}22,${C.blue}11)`,
+                    background: `linear-gradient(135deg,${mix(C.grad, "22")},${mix(C.blue, "11")})`,
                     color: C.grad, minHeight: 44, opacity: punditLoading ? 0.6 : 1,
                     transition: "opacity 0.2s",
                   }}>
@@ -2135,7 +2280,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                 {punditText && (
                   <div style={{
                     color: C.text, fontSize: 14, lineHeight: 1.72,
-                    borderLeft: `3px solid ${C.grad}66`, paddingLeft: 14,
+                    borderLeft: `3px solid ${mix(C.grad, "66")}`, paddingLeft: 14,
                     whiteSpace: "pre-wrap",
                   }}>
                     {punditText}
@@ -2156,17 +2301,37 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
             <div style={{ display: "grid", gap: 16 }}>
               {/* podium top 3 */}
               <div style={glassCard}>
-                <h3 style={{ margin: "0 0 16px", fontSize: 16 }}>Championship favorites — podium</h3>
+                <Trophy
+                  src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/FIFA_World_Cup_Trophy_at_National_Football_Museum%2C_Manchester_02.jpg/500px-FIFA_World_Cup_Trophy_at_National_Football_Museum%2C_Manchester_02.jpg"
+                  alt="FIFA World Cup Trophy at the National Football Museum, Manchester"
+                  credit="Photo: Ank Kumar · Wikimedia Commons · CC BY-SA 4.0"
+                  height={150}
+                  rounded
+                />
+                <h3 style={{ margin: "0 0 4px", fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}>
+                  Championship favorites — podium
+                  <span style={{
+                    marginLeft: "auto", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 999,
+                    color: eloBase ? C.green : C.dim, border: `1px solid ${mix((eloBase ? C.green : C.dim), "44")}`,
+                  }}>
+                    {eloBase ? "● Live Elo (eloratings.net)" : "○ Preseason ratings"}
+                  </span>
+                </h3>
+                <p style={{ margin: "0 0 16px", color: C.dim, fontSize: 12 }}>
+                  {eloBase
+                    ? "Base ratings sourced from eloratings.net's live World Football Elo table, rescaled onto the model's rating band, then updated further by every finished WC2026 result."
+                    : "Live Elo feed unavailable — using hand-tuned preseason ratings, updated by every finished WC2026 result."}
+                </p>
                 <div className="podium-wrap" style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
                   {[
                     { rank: 1, medal: "🥇", col: C.gold, glow: C.goldGlow, scale: 1.08 },
-                    { rank: 0, medal: "🥈", col: "#c0c8d8", glow: "rgba(192,200,216,0.15)", scale: 1 },
-                    { rank: 2, medal: "🥉", col: "#cd7f32", glow: "rgba(205,127,50,0.18)", scale: 0.95 },
+                    { rank: 0, medal: "🥈", col: C.silver, glow: mix(C.silver, "26"), scale: 1 },
+                    { rank: 2, medal: "🥉", col: C.bronze, glow: mix(C.bronze, "2e"), scale: 0.95 },
                   ].map(({ rank, medal, col, glow, scale }) => {
                     const p = probs[rank];
                     return (
                       <div key={rank} style={{
-                        background: C.panel2, border: `1px solid ${col}55`,
+                        background: C.panel2, border: `1px solid ${mix(col, "55")}`,
                         borderRadius: 16, padding: "20px 24px", textAlign: "center",
                         flex: "1 1 140px", maxWidth: 200,
                         boxShadow: `0 8px 28px ${glow}`,
@@ -2179,7 +2344,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                         <div style={{ ...pill(col), margin: "8px auto 0", display: "inline-flex" }}>
                           {p.code}
                         </div>
-                        <div style={{ color: col, fontWeight: 800, fontSize: 22, marginTop: 10 }}>
+                        <div style={{ ...monoFont, color: col, fontWeight: 700, fontSize: 26, marginTop: 10 }}>
                           {(p.p * 100).toFixed(1)}%
                         </div>
                         <div style={{ color: C.dim, fontSize: 11, marginTop: 2 }}>win probability</div>
@@ -2259,15 +2424,15 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                             <tr key={t.name} style={{
                               borderTop: `1px solid ${C.line}`,
                               background: promoted
-                                ? i === 0 ? `${C.green}14` : `${C.green}09`
-                                : i % 2 === 0 ? "transparent" : `${C.panel2}88`,
+                                ? i === 0 ? `${mix(C.green, "14")}` : `${mix(C.green, "09")}`
+                                : i % 2 === 0 ? "transparent" : `${mix(C.panel2, "88")}`,
                             }}>
                               <td style={{ textAlign: "left", padding: "7px 0", fontWeight: promoted ? 700 : 500 }}>
                                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                                   <span style={{
                                     width: 20, height: 20, borderRadius: "50%",
-                                    background: promoted ? C.green + "33" : C.panel2,
-                                    border: `1px solid ${promoted ? C.green + "66" : C.line}`,
+                                    background: promoted ? mix(C.green, "33") : C.panel2,
+                                    border: `1px solid ${promoted ? mix(C.green, "66") : C.line}`,
                                     color: promoted ? C.green : C.dim,
                                     display: "inline-flex", alignItems: "center", justifyContent: "center",
                                     fontSize: 10, fontWeight: 800, flexShrink: 0,
@@ -2307,7 +2472,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
             <div style={{ display: "grid", gap: 16 }}>
               {/* hero / trophy */}
               <div style={{ ...glassCard, textAlign: "center", overflow: "hidden" }}>
-                <Trophy />
+                <Trophy credit="Photo: bakken-skijumping.com · Wikimedia Commons · CC BY-SA 4.0" />
                 <div style={{ color: C.dim, fontSize: 12, marginTop: 4 }}>
                   Final · July 19, 2026 · MetLife Stadium, New York / New Jersey
                 </div>
@@ -2316,8 +2481,8 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
               {/* projected final VS card */}
               <div style={{
                 ...glassCard,
-                background: `linear-gradient(135deg, ${C.gold}12, ${C.grad}10)`,
-                border: `1px solid ${C.gold}44`,
+                background: `linear-gradient(135deg, ${mix(C.gold, "12")}, ${mix(C.grad, "10")})`,
+                border: `1px solid ${mix(C.gold, "44")}`,
                 boxShadow: `0 0 32px ${C.goldGlow}`,
                 textAlign: "center",
               }}>
@@ -2332,8 +2497,8 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                   </div>
                   <div style={{
                     width: 56, height: 56, borderRadius: "50%",
-                    background: `radial-gradient(circle, ${C.grad}44, ${C.panel2})`,
-                    border: `2px solid ${C.grad}88`,
+                    background: `radial-gradient(circle, ${mix(C.grad, "44")}, ${C.panel2})`,
+                    border: `2px solid ${mix(C.grad, "88")}`,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontWeight: 900, fontSize: 16, color: C.grad, flexShrink: 0,
                     boxShadow: `0 0 18px ${C.gradGlow}`,
@@ -2351,14 +2516,14 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                 <h3 style={{ margin: "0 0 14px", fontSize: 15 }}>Top 8 projected</h3>
                 <div className="semifinal-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
                   {probs.slice(0, 8).map((p, i) => {
-                    const accent = [C.gold, "#c0c8d8", "#cd7f32", C.blue, C.grad, C.green, C.red, C.dimMid][i];
+                    const accent = [C.gold, C.silver, C.bronze, C.blue, C.grad, C.green, C.red, C.dimMid][i];
                     const medals = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣"];
                     return (
                       <div key={p.name} style={{
-                        background: C.panel2, border: `1px solid ${accent}44`,
+                        background: C.panel2, border: `1px solid ${mix(accent, "44")}`,
                         borderRadius: 12, padding: "14px 10px", textAlign: "center",
                         borderTop: `3px solid ${accent}`,
-                        boxShadow: i < 2 ? `0 4px 16px ${accent}22` : "none",
+                        boxShadow: i < 2 ? `0 4px 16px ${mix(accent, "22")}` : "none",
                       }}>
                         <div style={{ fontSize: 16, marginBottom: 6 }}>{medals[i]}</div>
                         <Flag code={p.code} size={28} />
@@ -2380,7 +2545,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                 <button onClick={genHero} disabled={heroLoading} className="nav-btn" style={{
                   padding: "12px 24px", borderRadius: 12, cursor: "pointer",
                   fontWeight: 700, fontSize: 14, border: `1px solid ${C.gold}`,
-                  background: `linear-gradient(135deg, ${C.gold}1c, ${C.grad}10)`,
+                  background: `linear-gradient(135deg, ${mix(C.gold, "1c")}, ${mix(C.grad, "10")})`,
                   color: C.gold, minHeight: 48, minWidth: 48,
                   opacity: heroLoading ? 0.6 : 1,
                 }}>
@@ -2390,14 +2555,14 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                 {/* generated art preview — shows here at the bottom */}
                 {heroLoading && (
                   <div style={{ marginTop: 16, height: 260, borderRadius: 14, border: `1px solid ${C.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, background: C.panel2 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: "50%", border: `3px solid ${C.gold}44`, borderTopColor: C.gold, animation: "spin3d 0.8s linear infinite" }} />
+                    <div style={{ width: 40, height: 40, borderRadius: "50%", border: `3px solid ${mix(C.gold, "44")}`, borderTopColor: C.gold, animation: "spin3d 0.8s linear infinite" }} />
                     <div style={{ color: C.dim, fontSize: 12 }}>Painting the stadium, fans &amp; players…</div>
                   </div>
                 )}
                 {!heroLoading && hero && (
                   <figure style={{ margin: "16px 0 0" }}>
                     <img src={hero} alt="Generated World Cup final stadium with fans and players"
-                      style={{ width: "100%", borderRadius: 14, border: `1px solid ${C.gold}44`, display: "block", boxShadow: `0 8px 32px rgba(0,0,0,0.4)`, animation: "fadeUp 0.4s ease both" }} />
+                      style={{ width: "100%", borderRadius: 14, border: `1px solid ${mix(C.gold, "44")}`, display: "block", boxShadow: `0 8px 32px rgba(0,0,0,0.4)`, animation: "fadeUp 0.4s ease both" }} />
                     <figcaption style={{ color: C.dim, fontSize: 11, marginTop: 8 }}>
                       AI-generated World Cup final atmosphere · fans, players &amp; crowd
                     </figcaption>
@@ -2407,7 +2572,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
                 <div style={{ color: C.dim, fontSize: 11, marginTop: 8 }}>
                   Via Pollinations.ai (key optional) · falls back to free URL · then Gemini if <code>VITE_GEMINI_API_KEY</code> is set.
                 {heroError && (
-                  <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 8, background: C.redGlow, border: `1px solid ${C.red}44`, color: C.red, fontSize: 12, textAlign: "left", wordBreak: "break-word" }}>
+                  <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 8, background: C.redGlow, border: `1px solid ${mix(C.red, "44")}`, color: C.red, fontSize: 12, textAlign: "left", wordBreak: "break-word" }}>
                     ⚠️ {heroError}
                   </div>
                 )}
@@ -2432,7 +2597,7 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
       {/* ── MOBILE BOTTOM TAB BAR ─────────────────────────────────────── */}
       <nav className="bottom-nav" style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100,
-        background: "rgba(7,9,15,0.92)",
+        background: "color-mix(in srgb, var(--c-panel) 92%, transparent)",
         backdropFilter: "blur(20px) saturate(180%)",
         WebkitBackdropFilter: "blur(20px) saturate(180%)",
         borderTop: `1px solid ${C.line}`,
@@ -2457,9 +2622,6 @@ Be punchy, reference real playing styles, mention key tactical matchups. End wit
           );
         })}
       </nav>
-
-      {/* ── AUTH MODAL ──────────────────────────────────────────────── */}
-      {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
     </div>
   );
 }
@@ -2491,12 +2653,11 @@ function Sel({ label, value, onChange }) {
 function Stat({ label, val, col }) {
   return (
     <div style={{
-      background: C.panel2, border: `1px solid ${(col || C.gold) + "33"}`,
+      background: C.panel, border: `1px solid ${C.line}`,
       borderRadius: 12, padding: "14px 16px",
-      boxShadow: `0 4px 16px ${(col || C.gold) + "18"}`,
     }}>
-      <div style={{ color: C.dim, fontSize: 12, fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 900, color: col || C.gold, marginTop: 4 }}>{val}</div>
+      <div style={{ ...monoFont, color: C.dim, fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>{label}</div>
+      <div style={{ ...monoFont, fontSize: 24, fontWeight: 700, color: col || C.gold, marginTop: 6 }}>{val}</div>
     </div>
   );
 }

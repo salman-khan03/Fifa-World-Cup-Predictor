@@ -6,16 +6,25 @@
 
 ## ✨ Features
 
+The app is organised into seven tabs — **Matches · Predictor · Title Race · Accuracy · Groups · Final Path · Reviews** — all scoped to the FIFA World Cup 2026.
+
 | Category | Details |
 |---|---|
-| **Prediction Engine** | Rating-driven bivariate Poisson model + live Elo rating updates after every result |
+| **Prediction Engine** | Rating-driven bivariate Poisson model + live Elo rating updates after every result; per-match Win / Draw / Loss donut gauge |
 | **Live Match Data** | Four-tier live data pipeline: local API → football-data.org → api-football → worldcup26.ir |
+| **Kalshi Market Odds** | Live implied **tournament-winner** probabilities for the two selected teams, pulled from the Kalshi prediction market (`/api/kalshi`, no auth). *Note: these are title-to-win odds, not per-match head-to-head odds* |
+| **Predict the Champion** | Free, no-money community pick for who wins it all — stored in Supabase, shown against live Kalshi odds and a community-consensus chart, with a deep-link to trade the real market on kalshi.com |
 | **AI Tactical Breakdown** | Groq (Llama 3.3 70B) streams pundit-style match previews in real time; falls back to Pollinations.ai |
+| **AI Match Commentary** | ElevenLabs text-to-speech reads a "Hear the call" summary line for finished matches (`/api/commentary`) |
+| **Possession Data** | Per-match possession split for completed & live games (`/api/possession`, fbref.com) |
 | **Generative Stadium Art** | Pollinations.ai FLUX model generates a unique stadium hero image per session |
 | **AI Team Art** | Dynamic Pollinations.ai images rendered per team in the Predictor tab |
 | **Community Reviews** | Supabase Postgres with RLS — submit star ratings & reviews (name optional); live realtime sync |
 | **Title Race** | Championship probability chart with gold/silver/bronze podium |
+| **Model Accuracy** | Accuracy tab scoring the engine's forecasts against actual results |
 | **Group Standings** | Live standings for all groups with promotion zone highlighting |
+| **Final Path (Bracket)** | Knockout-stage projection through to the projected final |
+| **Light / Dark Theme** | Instant theme toggle via a single `[data-theme]` swap |
 | **Mobile-First UI** | Bottom tab bar on iOS/Android, glassmorphism cards, safe-area insets, 48px touch targets |
 
 ---
@@ -28,8 +37,10 @@
 | **Charts** | Recharts (BarChart, RadarChart) |
 | **Auth & Database** | Supabase (Auth + Postgres + Realtime) |
 | **AI — Text** | Groq API (Llama 3.3 70B, streaming SSE) |
-| **AI — Images** | Pollinations.ai (FLUX model) |
-| **Sports Data** | football-data.org · api-football (api-sports.io) · worldcup26.ir |
+| **AI — Images** | Pollinations.ai (FLUX model) · Gemini (optional fallback) |
+| **AI — Audio** | ElevenLabs (text-to-speech commentary) |
+| **Market Odds** | Kalshi public prediction-market API |
+| **Sports Data** | football-data.org · api-football (api-sports.io) · worldcup26.ir · fbref.com (possession) |
 | **Prediction Model** | Bivariate Poisson + Elo rating system (custom, client-side) |
 | **Styling** | CSS-in-JS inline styles + injected keyframe/media-query `<style>` block |
 
@@ -74,29 +85,24 @@ VITE_GEMINI_IMAGE_MODEL=gemini-2.0-flash-exp
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your_anon_key
 
+# ---- ElevenLabs — AI match commentary (server-side, /api/commentary) ----
+ELEVENLABS_API_KEY=
+
 # ---- Hugging Face (optional) ----
 VITE_HF_TOKEN=hf_...
 ```
 
+> **Kalshi** requires no key — `/api/kalshi` proxies the public prediction-market API.
+> All keys are optional: with none set, the app runs fully offline on seeded WC2026 data and its own prediction engine.
+
 ### 3. Set up Supabase
 
-**Database** — run this in your Supabase SQL Editor:
+**Database** — in your Supabase SQL Editor, run each migration in `supabase/`:
 
-```sql
-create table reviews (
-  id uuid primary key default gen_random_uuid(),
-  user_name text,
-  rating integer check (rating between 1 and 5),
-  content text,
-  created_at timestamptz default now()
-);
+- `supabase/reviews.sql` — powers the Reviews tab
+- `supabase/champion_picks.sql` — powers the "Predict the Champion" community pick
 
-alter table reviews enable row level security;
-create policy "Anyone can read reviews"
-  on reviews for select using (true);
-create policy "Anyone can insert reviews"
-  on reviews for insert with check (true);
-```
+Both are anonymous, session-key-scoped tables (no login required) with RLS policies for public read + owner-only write.
 
 ### 4. Run locally
 
@@ -145,6 +151,15 @@ Generates a unique AI stadium image per session via a direct `<img>` URL — no 
 
 ### 🖼 Team Identity Art (Pollinations.ai)
 Each team selected in the Predictor tab gets an abstract AI-generated color art image, updating live as teams change.
+
+### 🔈 Match Commentary (ElevenLabs)
+Finished matches show a **"Hear the call"** button that streams AI text-to-speech commentary summarising the result. Requires a server-side `ELEVENLABS_API_KEY`; degrades gracefully to "Unavailable" if unset.
+
+### 💹 Kalshi Prediction Market
+The Predictor tab surfaces the live implied **tournament-winner** probability for each selected team from the Kalshi "2026 FIFA World Cup Winner" market. These are *title-to-win* odds — the app deliberately labels them as **not** a head-to-head forecast for the individual matchup. The match-winner prediction itself comes from the built-in Poisson/Elo engine, not Kalshi.
+
+### 🔮 Predict the Champion (community picks + real Kalshi trading)
+A free, no-account "who wins it all" pick sits alongside the Kalshi odds — one pick per browser session, stored in Supabase (`champion_picks` table, run `supabase/champion_picks.sql`). Shows a live community-consensus bar chart and the real Kalshi odds for your pick. A **"Trade real money on Kalshi ↗"** button deep-links to the actual `KXMENWORLDCUP-26` market on kalshi.com — no trading logic lives in this app; placing a real trade requires the user's own Kalshi account.
 
 ---
 
@@ -224,11 +239,12 @@ npm run preview      # serves the dist/ build at http://localhost:4173
 
 ## 🗺 Roadmap
 
-- [ ] Knock-out bracket simulator (Round of 32 → Final)
+- [x] Knock-out bracket simulator (Round of 32 → Final) — *Final Path tab*
+- [x] Dark / light theme toggle
+- [ ] **Per-match Kalshi odds** (head-to-head match-winner markets, not just tournament-winner)
 - [ ] Head-to-head historical record overlay
 - [ ] Push notifications for LIVE match alerts
 - [ ] Share predicted scorelines as images
-- [ ] Dark / light theme toggle
 
 ---
 
